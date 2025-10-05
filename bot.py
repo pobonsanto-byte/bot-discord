@@ -7,7 +7,18 @@ import os
 
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 ARQUIVO_IMUNES = "imunidades.json"
-CANAL_AVISOS_ID = int(os.getenv("DISCORD_CHANNEL_ID", "0"))
+
+channel_id_env = os.getenv("DISCORD_CHANNEL_ID", "0")
+if channel_id_env.startswith("http"):
+    print("⚠️ DISCORD_CHANNEL_ID parece ser uma URL de webhook, não um ID de canal.")
+    print("   Por favor, forneça apenas o ID numérico do canal.")
+    CANAL_AVISOS_ID = 0
+else:
+    try:
+        CANAL_AVISOS_ID = int(channel_id_env)
+    except ValueError:
+        print(f"⚠️ DISCORD_CHANNEL_ID inválido: {channel_id_env}")
+        CANAL_AVISOS_ID = 0
 
 class ImuneBot(discord.Client):
     def __init__(self):
