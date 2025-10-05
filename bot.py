@@ -97,6 +97,10 @@ async def verificar_imunidades():
         print("⚠️ Canal de avisos não encontrado (verifique o ID).")
         return
 
+    if not isinstance(canal, (discord.TextChannel, discord.Thread)):
+        print("⚠️ Canal especificado não é um canal de texto válido.")
+        return
+
     for user_id, dados in list(imunes.items()):
         data_inicial = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
         if agora - data_inicial >= timedelta(days=2):
