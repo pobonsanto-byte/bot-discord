@@ -7,6 +7,7 @@ import os
 
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 ARQUIVO_IMUNES = "imunidades.json"
+CANAIS_BLOQUEADOS_FILE = "canais_bloqueados.json"
 
 channel_id_env = os.getenv("DISCORD_CHANNEL_ID", "0")
 if channel_id_env.startswith("http"):
@@ -52,6 +53,24 @@ def salvar_imunes(imunes):
             json.dump(imunes, f, indent=4, ensure_ascii=False)
     except IOError as e:
         print(f"❌ Erro ao salvar {ARQUIVO_IMUNES}: {e}")
+
+def carregar_canais_bloqueados():
+    if not os.path.exists(CANAIS_BLOQUEADOS_FILE):
+        return []
+    try:
+        with open(CANAIS_BLOQUEADOS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, list) else []
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"⚠️ Erro ao carregar {CANAIS_BLOQUEADOS_FILE}: {e}")
+        return []
+
+def salvar_canais_bloqueados(canais):
+    try:
+        with open(CANAIS_BLOQUEADOS_FILE, "w", encoding="utf-8") as f:
+            json.dump(canais, f, indent=4, ensure_ascii=False)
+    except IOError as e:
+        print(f"❌ Erro ao salvar {CANAIS_BLOQUEADOS_FILE}: {e}")
 
 @bot.tree.command(name="imune_add", description="Adiciona um personagem imune (1 por jogador).")
 @app_commands.describe(nome_personagem="Nome do personagem", jogo_anime="Nome do jogo/anime")
@@ -109,6 +128,40 @@ async def imune_remover(interaction: discord.Interaction):
     salvar_imunes(imunes)
     await interaction.response.send_message(f"✅ {interaction.user.mention}, sua imunidade foi removida.", ephemeral=False)
 
+@bot.tree.command(name="bloquear", description="Bloqueia o bot de enviar mensagens neste canal.")
+async def bloquear(interaction: discord.Interaction):
+    if not interaction.channel:
+        await interaction.response.send_message("❌ Erro ao identificar o canal.", ephemeral=True)
+        return
+    
+    canais_bloqueados = carregar_canais_bloqueados()
+    canal_id = interaction.channel.id
+
+    if canal_id in canais_bloqueados:
+        await interaction.response.send_message("⚠️ Esse canal já está bloqueado.", ephemeral=True)
+        return
+
+    canais_bloqueados.append(canal_id)
+    salvar_canais_bloqueados(canais_bloqueados)
+    await interaction.response.send_message(f"🔒 Bot bloqueado neste canal.", ephemeral=False)
+
+@bot.tree.command(name="desbloquear", description="Desbloqueia o bot neste canal.")
+async def desbloquear(interaction: discord.Interaction):
+    if not interaction.channel:
+        await interaction.response.send_message("❌ Erro ao identificar o canal.", ephemeral=True)
+        return
+    
+    canais_bloqueados = carregar_canais_bloqueados()
+    canal_id = interaction.channel.id
+
+    if canal_id not in canais_bloqueados:
+        await interaction.response.send_message("⚠️ Esse canal não está bloqueado.", ephemeral=True)
+        return
+
+    canais_bloqueados.remove(canal_id)
+    salvar_canais_bloqueados(canais_bloqueados)
+    await interaction.response.send_message(f"🔓 Bot desbloqueado neste canal.", ephemeral=False)
+
 @tasks.loop(hours=1)
 async def verificar_imunidades():
     imunes = carregar_imunes()
@@ -131,6 +184,12 @@ async def verificar_imunidades():
         salvar_imunes(imunes)
 
     if expirados and CANAL_AVISOS_ID != 0:
+        canais_bloqueados = carregar_canais_bloqueados()
+        
+        if CANAL_AVISOS_ID in canais_bloqueados:
+            print(f"⚠️ Canal {CANAL_AVISOS_ID} bloqueado — pulando envio de mensagens.")
+            return
+        
         canal = bot.get_channel(CANAL_AVISOS_ID)
         if canal and isinstance(canal, (discord.TextChannel, discord.Thread)):
             for user_id, dados in expirados:
@@ -144,7 +203,7 @@ async def verificar_imunidades():
 @bot.event
 async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
-    await bot.change_presence(activity=discord.Game(name="/imune_add | /imune_lista"))
+    await bot.change_presence(activity=discord.Game(name="/imune_add | /bloquear"))
 
 if __name__ == "__main__":
     if not TOKEN:
