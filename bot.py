@@ -131,8 +131,23 @@ async def on_ready():
 if __name__ == "__main__":
     if not TOKEN:
         print("❌ ERRO: DISCORD_BOT_TOKEN não encontrado nas variáveis de ambiente!")
+        print("   Configure o token do bot nas variáveis de ambiente do Replit.")
         exit(1)
     if CANAL_AVISOS_ID == 0:
         print("⚠️ AVISO: DISCORD_CHANNEL_ID não definido. Notificações não funcionarão.")
     
-    bot.run(TOKEN)
+    print(f"🔑 Token configurado (primeiros 10 caracteres): {TOKEN[:10]}...")
+    print("🚀 Tentando conectar ao Discord...")
+    
+    try:
+        bot.run(TOKEN)
+    except discord.errors.LoginFailure:
+        print("\n❌ ERRO DE AUTENTICAÇÃO!")
+        print("   O token do bot está inválido ou expirou.")
+        print("   Por favor, gere um novo token em:")
+        print("   https://discord.com/developers/applications")
+        print("   1. Selecione sua aplicação")
+        print("   2. Vá em 'Bot'")
+        print("   3. Clique em 'Reset Token' e copie o novo token")
+        print("   4. Cole o token nas variáveis de ambiente do Replit")
+        exit(1)
