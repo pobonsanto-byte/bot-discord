@@ -26,7 +26,11 @@ class ImuneBot(discord.Client):
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
-        await self.tree.sync()
+        try:
+            synced = await self.tree.sync()
+            print(f"✅ {len(synced)} comandos sincronizados globalmente")
+        except Exception as e:
+            print(f"❌ Erro ao sincronizar comandos: {e}")
         verificar_imunidades.start()
 
 bot = ImuneBot()
@@ -34,12 +38,20 @@ bot = ImuneBot()
 def carregar_imunes():
     if not os.path.exists(ARQUIVO_IMUNES):
         return {}
-    with open(ARQUIVO_IMUNES, "r", encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(ARQUIVO_IMUNES, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"⚠️ Erro ao carregar {ARQUIVO_IMUNES}: {e}")
+        return {}
 
 def salvar_imunes(imunes):
-    with open(ARQUIVO_IMUNES, "w", encoding="utf-8") as f:
-        json.dump(imunes, f, indent=4, ensure_ascii=False)
+    try:
+        with open(ARQUIVO_IMUNES, "w", encoding="utf-8") as f:
+            json.dump(imunes, f, indent=4, ensure_ascii=False)
+    except IOError as e:
+        print(f"❌ Erro ao salvar {ARQUIVO_IMUNES}: {e}")
 
 @bot.tree.command(name="imune_add", description="Adiciona um personagem imune (1 por jogador).")
 @app_commands.describe(nome_personagem="Nome do personagem", jogo_anime="Nome do jogo/anime")
@@ -102,26 +114,32 @@ async def verificar_imunidades():
     imunes = carregar_imunes()
     agora = datetime.now()
     alterado = False
-
-    canal = bot.get_channel(CANAL_AVISOS_ID)
-    if not canal:
-        print("⚠️ Canal de avisos não encontrado (verifique o ID).")
-        return
-
-    if not isinstance(canal, (discord.TextChannel, discord.Thread)):
-        print("⚠️ Canal especificado não é um canal de texto válido.")
-        return
+    expirados = []
 
     for user_id, dados in list(imunes.items()):
-        data_inicial = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
-        if agora - data_inicial >= timedelta(days=2):
-            await canal.send(f"🕒 A imunidade de **{dados['personagem']} ({dados['origem']})** do jogador **{dados['usuario']}** expirou!")
-            del imunes[user_id]
-            alterado = True
-            print(f"🔁 Imunidade expirada: {dados['usuario']} ({dados['personagem']})")
+        try:
+            data_inicial = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
+            if agora - data_inicial >= timedelta(days=2):
+                expirados.append((user_id, dados))
+                del imunes[user_id]
+                alterado = True
+                print(f"🔁 Imunidade expirada: {dados['usuario']} ({dados['personagem']})")
+        except (KeyError, ValueError) as e:
+            print(f"⚠️ Dados inválidos para user_id {user_id}: {e}")
 
     if alterado:
         salvar_imunes(imunes)
+
+    if expirados and CANAL_AVISOS_ID != 0:
+        canal = bot.get_channel(CANAL_AVISOS_ID)
+        if canal and isinstance(canal, (discord.TextChannel, discord.Thread)):
+            for user_id, dados in expirados:
+                try:
+                    await canal.send(f"🕒 A imunidade de **{dados['personagem']} ({dados['origem']})** do jogador **{dados['usuario']}** expirou!")
+                except discord.errors.HTTPException as e:
+                    print(f"❌ Erro ao enviar mensagem de expiração: {e}")
+        else:
+            print("⚠️ Canal de avisos não encontrado ou inválido. Notificações não foram enviadas.")
 
 @bot.event
 async def on_ready():
