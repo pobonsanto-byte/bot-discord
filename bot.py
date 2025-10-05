@@ -7,19 +7,6 @@ import os
 
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 ARQUIVO_IMUNES = "imunidades.json"
-CANAIS_BLOQUEADOS_FILE = "canais_bloqueados.json"
-
-channel_id_env = os.getenv("DISCORD_CHANNEL_ID", "0")
-if channel_id_env.startswith("http"):
-    print("⚠️ DISCORD_CHANNEL_ID parece ser uma URL de webhook, não um ID de canal.")
-    print("   Por favor, forneça apenas o ID numérico do canal.")
-    CANAL_AVISOS_ID = 0
-else:
-    try:
-        CANAL_AVISOS_ID = int(channel_id_env)
-    except ValueError:
-        print(f"⚠️ DISCORD_CHANNEL_ID inválido: {channel_id_env}")
-        CANAL_AVISOS_ID = 0
 
 class ImuneBot(discord.Client):
     def __init__(self):
@@ -54,35 +41,38 @@ def salvar_imunes(imunes):
     except IOError as e:
         print(f"❌ Erro ao salvar {ARQUIVO_IMUNES}: {e}")
 
-def carregar_canais_bloqueados():
-    if not os.path.exists(CANAIS_BLOQUEADOS_FILE):
-        return []
-    try:
-        with open(CANAIS_BLOQUEADOS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data if isinstance(data, list) else []
-    except (json.JSONDecodeError, IOError) as e:
-        print(f"⚠️ Erro ao carregar {CANAIS_BLOQUEADOS_FILE}: {e}")
-        return []
-
-def salvar_canais_bloqueados(canais):
-    try:
-        with open(CANAIS_BLOQUEADOS_FILE, "w", encoding="utf-8") as f:
-            json.dump(canais, f, indent=4, ensure_ascii=False)
-    except IOError as e:
-        print(f"❌ Erro ao salvar {CANAIS_BLOQUEADOS_FILE}: {e}")
+def canal_imunidade():
+    async def predicate(interaction: discord.Interaction) -> bool:
+        if isinstance(interaction.channel, (discord.TextChannel, discord.Thread)):
+            if "imunidade" in interaction.channel.name.lower():
+                return True
+        await interaction.response.send_message(
+            "❌ Esse comando só pode ser usado em canais com 'imunidade' no nome.",
+            ephemeral=True
+        )
+        return False
+    return app_commands.check(predicate)
 
 @bot.tree.command(name="imune_add", description="Adiciona um personagem imune (1 por jogador).")
+@canal_imunidade()
 @app_commands.describe(nome_personagem="Nome do personagem", jogo_anime="Nome do jogo/anime")
 async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo_anime: str):
+    if not interaction.guild:
+        await interaction.response.send_message("❌ Este comando só pode ser usado em servidores.", ephemeral=True)
+        return
+    
     imunes = carregar_imunes()
+    guild_id = str(interaction.guild.id)
+
+    if guild_id not in imunes:
+        imunes[guild_id] = {}
 
     user_id = str(interaction.user.id)
-    if user_id in imunes:
+    if user_id in imunes[guild_id]:
         await interaction.response.send_message(f"⚠️ {interaction.user.mention}, você já possui um personagem imune!", ephemeral=True)
         return
 
-    imunes[user_id] = {
+    imunes[guild_id][user_id] = {
         "usuario": interaction.user.name,
         "personagem": nome_personagem,
         "origem": jogo_anime,
@@ -96,122 +86,102 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
     )
 
 @bot.tree.command(name="imune_lista", description="Mostra a lista atual de personagens imunes.")
+@canal_imunidade()
 async def imune_lista(interaction: discord.Interaction):
+    if not interaction.guild:
+        await interaction.response.send_message("❌ Este comando só pode ser usado em servidores.", ephemeral=True)
+        return
+    
     imunes = carregar_imunes()
-    if not imunes:
+    guild_id = str(interaction.guild.id)
+
+    if guild_id not in imunes or not imunes[guild_id]:
         await interaction.response.send_message("📭 Nenhum personagem imune no momento.")
         return
 
     embed = discord.Embed(title="🧾 Lista de Personagens Imunes", color=0x5865F2)
-    for dados in imunes.values():
-        data_criacao = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
-        tempo_passado = datetime.now() - data_criacao
-        horas_restantes = max(0, 48 - int(tempo_passado.total_seconds() // 3600))
-        embed.add_field(
-            name=f"{dados['personagem']} ({dados['origem']})",
-            value=f"Dono: **{dados['usuario']}**\n⏳ Expira em: {horas_restantes}h",
-            inline=False
-        )
+    for dados in imunes[guild_id].values():
+        try:
+            data_criacao = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
+            tempo_passado = datetime.now() - data_criacao
+            horas_restantes = max(0, 48 - int(tempo_passado.total_seconds() // 3600))
+            embed.add_field(
+                name=f"{dados['personagem']} ({dados['origem']})",
+                value=f"Dono: **{dados['usuario']}**\n⏳ Expira em: {horas_restantes}h",
+                inline=False
+            )
+        except (KeyError, ValueError) as e:
+            print(f"⚠️ Erro ao processar dados de imunidade: {e}")
 
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="imune_remover", description="Remove sua imunidade manualmente.")
+@canal_imunidade()
 async def imune_remover(interaction: discord.Interaction):
+    if not interaction.guild:
+        await interaction.response.send_message("❌ Este comando só pode ser usado em servidores.", ephemeral=True)
+        return
+    
     imunes = carregar_imunes()
+    guild_id = str(interaction.guild.id)
     user_id = str(interaction.user.id)
 
-    if user_id not in imunes:
+    if guild_id not in imunes or user_id not in imunes[guild_id]:
         await interaction.response.send_message("❌ Você não possui imunidade ativa.", ephemeral=True)
         return
 
-    del imunes[user_id]
+    del imunes[guild_id][user_id]
     salvar_imunes(imunes)
     await interaction.response.send_message(f"✅ {interaction.user.mention}, sua imunidade foi removida.", ephemeral=False)
-
-@bot.tree.command(name="bloquear", description="Bloqueia o bot de enviar mensagens neste canal.")
-async def bloquear(interaction: discord.Interaction):
-    if not interaction.channel:
-        await interaction.response.send_message("❌ Erro ao identificar o canal.", ephemeral=True)
-        return
-    
-    canais_bloqueados = carregar_canais_bloqueados()
-    canal_id = interaction.channel.id
-
-    if canal_id in canais_bloqueados:
-        await interaction.response.send_message("⚠️ Esse canal já está bloqueado.", ephemeral=True)
-        return
-
-    canais_bloqueados.append(canal_id)
-    salvar_canais_bloqueados(canais_bloqueados)
-    await interaction.response.send_message(f"🔒 Bot bloqueado neste canal.", ephemeral=False)
-
-@bot.tree.command(name="desbloquear", description="Desbloqueia o bot neste canal.")
-async def desbloquear(interaction: discord.Interaction):
-    if not interaction.channel:
-        await interaction.response.send_message("❌ Erro ao identificar o canal.", ephemeral=True)
-        return
-    
-    canais_bloqueados = carregar_canais_bloqueados()
-    canal_id = interaction.channel.id
-
-    if canal_id not in canais_bloqueados:
-        await interaction.response.send_message("⚠️ Esse canal não está bloqueado.", ephemeral=True)
-        return
-
-    canais_bloqueados.remove(canal_id)
-    salvar_canais_bloqueados(canais_bloqueados)
-    await interaction.response.send_message(f"🔓 Bot desbloqueado neste canal.", ephemeral=False)
 
 @tasks.loop(hours=1)
 async def verificar_imunidades():
     imunes = carregar_imunes()
     agora = datetime.now()
     alterado = False
-    expirados = []
 
-    for user_id, dados in list(imunes.items()):
-        try:
-            data_inicial = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
-            if agora - data_inicial >= timedelta(days=2):
-                expirados.append((user_id, dados))
-                del imunes[user_id]
-                alterado = True
-                print(f"🔁 Imunidade expirada: {dados['usuario']} ({dados['personagem']})")
-        except (KeyError, ValueError) as e:
-            print(f"⚠️ Dados inválidos para user_id {user_id}: {e}")
+    for guild_id, usuarios in list(imunes.items()):
+        canal = None
+        guild = bot.get_guild(int(guild_id))
+        
+        if guild:
+            for c in guild.text_channels:
+                if "imunidade" in c.name.lower():
+                    canal = c
+                    break
+        
+        if not canal:
+            print(f"⚠️ Nenhum canal de imunidade encontrado no servidor {guild.name if guild else guild_id}.")
+            continue
+
+        for user_id, dados in list(usuarios.items()):
+            try:
+                data_inicial = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
+                if agora - data_inicial >= timedelta(days=2):
+                    try:
+                        await canal.send(f"🕒 A imunidade de **{dados['personagem']} ({dados['origem']})** do jogador **{dados['usuario']}** expirou!")
+                    except discord.errors.HTTPException as e:
+                        print(f"❌ Erro ao enviar mensagem de expiração: {e}")
+                    
+                    del usuarios[user_id]
+                    alterado = True
+                    print(f"🔁 Imunidade expirada: {dados['usuario']} ({dados['personagem']})")
+            except (KeyError, ValueError) as e:
+                print(f"⚠️ Dados inválidos para user_id {user_id}: {e}")
 
     if alterado:
         salvar_imunes(imunes)
 
-    if expirados and CANAL_AVISOS_ID != 0:
-        canais_bloqueados = carregar_canais_bloqueados()
-        
-        if CANAL_AVISOS_ID in canais_bloqueados:
-            print(f"⚠️ Canal {CANAL_AVISOS_ID} bloqueado — pulando envio de mensagens.")
-            return
-        
-        canal = bot.get_channel(CANAL_AVISOS_ID)
-        if canal and isinstance(canal, (discord.TextChannel, discord.Thread)):
-            for user_id, dados in expirados:
-                try:
-                    await canal.send(f"🕒 A imunidade de **{dados['personagem']} ({dados['origem']})** do jogador **{dados['usuario']}** expirou!")
-                except discord.errors.HTTPException as e:
-                    print(f"❌ Erro ao enviar mensagem de expiração: {e}")
-        else:
-            print("⚠️ Canal de avisos não encontrado ou inválido. Notificações não foram enviadas.")
-
 @bot.event
 async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
-    await bot.change_presence(activity=discord.Game(name="/imune_add | /bloquear"))
+    await bot.change_presence(activity=discord.Game(name="/imune_add | /imune_lista"))
 
 if __name__ == "__main__":
     if not TOKEN:
         print("❌ ERRO: DISCORD_BOT_TOKEN não encontrado nas variáveis de ambiente!")
         print("   Configure o token do bot nas variáveis de ambiente do Replit.")
         exit(1)
-    if CANAL_AVISOS_ID == 0:
-        print("⚠️ AVISO: DISCORD_CHANNEL_ID não definido. Notificações não funcionarão.")
     
     print(f"🔑 Token configurado (primeiros 10 caracteres): {TOKEN[:10]}...")
     print("🚀 Tentando conectar ao Discord...")

@@ -34,5 +34,4 @@ env/
 
 # Project specific
 imunidades.json
-canais_bloqueados.json
 .env

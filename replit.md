@@ -1,26 +1,26 @@
 # Discord Immunity Bot
 
 ## Overview
-A Discord bot that manages character immunities with automatic 48-hour expiration tracking and notifications.
+A Discord bot that manages character immunities with automatic 48-hour expiration tracking and notifications. Supports multiple servers with channel-based restrictions.
 
 ## Project Status
 ✅ Bot is live and running as **Imunidade#7699** with all features operational.
 
 ## Features
-### Immunity Commands
+### Immunity Commands (Only in channels with "imunidade" in name)
 - `/imune_add` - Register one immune character per user with game/anime origin
 - `/imune_lista` - Display all active immunities with remaining hours
 - `/imune_remover` - Manually remove your immunity
 
-### Channel Management
-- `/bloquear` - Block the bot from sending messages in the current channel
-- `/desbloquear` - Unblock the bot in the current channel
+### Multi-Server Support
+- Each server has its own immunity list
+- Commands only work in channels containing "imunidade" in the channel name
+- Automatic notifications sent to the first channel with "imunidade" in name
 
 ### Automatic System
 - Automatic hourly checks for expired immunities (48-hour duration)
-- Automated expiration notifications sent to designated Discord channel
-- Respects blocked channels - won't send notifications to blocked channels
-- JSON-based data persistence for both immunities and blocked channels
+- Searches for channels with "imunidade" in name to send notifications
+- JSON-based data persistence organized by server
 
 ## Setup Required
 The bot needs valid Discord credentials:
@@ -52,6 +52,7 @@ The bot needs valid Discord credentials:
 - 2025-10-05: Initial bot implementation
 - Added error handling for invalid credentials and malformed JSON files
 - Added channel type validation for notifications
-- Added `/bloquear` and `/desbloquear` commands for channel-level bot control
-- Implemented blocked channels system with persistent storage
-- Bot now respects blocked channels when sending expiration notifications
+- Implemented multi-server support with guild-based data storage
+- Added channel name restriction: commands only work in channels with "imunidade" in name
+- Automatic channel detection for expiration notifications based on channel name
+- Removed fixed channel ID system in favor of dynamic channel detection
