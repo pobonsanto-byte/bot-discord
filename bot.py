@@ -67,7 +67,12 @@ def salvar_json(nome_arquivo, dados):
 # === CLASSE DO BOT ===
 class ImuneBot(discord.Client):
     def __init__(self):
-        super().__init__(intents=discord.Intents.default())
+        intents = discord.Intents.default()
+        intents.messages = True
+        intents.message_content = True
+        intents.reactions = True
+        intents.guilds = True
+        super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
@@ -168,42 +173,29 @@ async def remover_canal_imune(interaction: discord.Interaction):
 async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo_anime: str):
     imunes = carregar_json(ARQUIVO_IMUNES)
     guild_id = str(interaction.guild.id)
-
     if guild_id not in imunes:
         imunes[guild_id] = {}
 
-    user_id = str(interaction.user.id)
-
-    # Verifica se o jogador já tem imunidade
-    if user_id in imunes[guild_id]:
-        await interaction.response.send_message(
-            f"⚠️ {interaction.user.mention}, você já possui um personagem imune!",
-            ephemeral=True
-        )
-        return
-
-    # Normaliza o nome do personagem (para comparar sem acento e sem maiúsculas)
-    nome_personagem_normalizado = nome_personagem.strip().lower()
-
-    # Verifica se o personagem já foi escolhido (mesmo nome, ignorando origem)
-    for dados in imunes[guild_id].values():
-        if dados["personagem"].strip().lower() == nome_personagem_normalizado:
+    # Verifica se o personagem já foi adicionado
+    for user_data in imunes[guild_id].values():
+        if user_data["personagem"].lower() == nome_personagem.lower():
             await interaction.response.send_message(
-                f"❌ O personagem **{nome_personagem}** já foi escolhido por **{dados['usuario']}**!",
+                f"❌ O personagem **{nome_personagem}** já está na lista de imunidades!",
                 ephemeral=True
             )
             return
 
-    # Adiciona novo personagem imune
+    user_id = str(interaction.user.id)
+    if user_id in imunes[guild_id]:
+        await interaction.response.send_message(f"⚠️ {interaction.user.mention}, você já possui um personagem imune!", ephemeral=True)
+        return
     imunes[guild_id][user_id] = {
         "usuario": interaction.user.name,
         "personagem": nome_personagem,
         "origem": jogo_anime,
         "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
-
     salvar_json(ARQUIVO_IMUNES, imunes)
-
     await interaction.response.send_message(
         f"🛡️ {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!",
         ephemeral=False
@@ -217,7 +209,6 @@ async def imune_lista(interaction: discord.Interaction):
     if guild_id not in imunes or not imunes[guild_id]:
         await interaction.response.send_message("📭 Nenhum personagem imune no momento.")
         return
-
     embed = discord.Embed(title="🧾 Lista de Personagens Imunes", color=0x5865F2)
     for dados in imunes[guild_id].values():
         try:
@@ -226,7 +217,7 @@ async def imune_lista(interaction: discord.Interaction):
             horas_restantes = max(0, 48 - int(tempo_passado.total_seconds() // 3600))
             embed.add_field(
                 name=f"{dados['personagem']} ({dados['origem']})",
-                value=f"👤 Dono: **{dados['usuario']}**\n⏳ Expira em **{horas_restantes}h**",
+                value=f"Dono: **{dados['usuario']}**\n⏳ Expira em: {horas_restantes}h",
                 inline=False
             )
         except Exception as e:
@@ -264,6 +255,43 @@ async def verificar_imunidades():
 
     if alterado:
         salvar_json(ARQUIVO_IMUNES, imunes)
+
+# === MONITORAMENTO DE REAÇÕES DO MUDAE ===
+@bot.event
+async def on_reaction_add(reaction, user):
+    if user.bot:
+        return
+
+    message = reaction.message
+    if not message.guild or not message.author or message.author.bot is False:
+        return
+
+    if message.author.name.lower() != "mudae":
+        return
+
+    guild_id = str(message.guild.id)
+    imunes = carregar_json(ARQUIVO_IMUNES)
+    configs = carregar_json(ARQUIVO_CONFIG)
+
+    if guild_id not in imunes:
+        return
+
+    conteudo = message.content.lower()
+    canal_id = configs.get(guild_id)
+    canal = message.guild.get_channel(canal_id) if canal_id else message.channel
+
+    for user_id, dados in imunes[guild_id].items():
+        personagem = dados["personagem"].lower()
+        if personagem in conteudo:
+            if str(user.id) == user_id:
+                await canal.send(
+                    f"✅ {user.mention} (dono do imune) reagiu ao personagem **{dados['personagem']} ({dados['origem']})**!"
+                )
+            else:
+                await canal.send(
+                    f"⚠️ {user.mention} reagiu ao personagem imune **{dados['personagem']} ({dados['origem']})**!\n"
+                    f"🛡️ Pertence a **{dados['usuario']}**."
+                )
 
 # === EVENTOS ===
 @bot.event
