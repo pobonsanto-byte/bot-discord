@@ -2,6 +2,7 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 from datetime import datetime, timedelta
+import json
 import os
 from flask import Flask
 from threading import Thread
@@ -10,52 +11,8 @@ import time
 
 # === CONFIGURAÇÃO ===
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-JSONBIN_API_KEY = os.getenv("JSONBIN_API_KEY")
-CONFIG_BIN_ID = os.getenv("CONFIG_BIN_ID")
-IMUNES_BIN_ID = os.getenv("IMUNES_BIN_ID")
-
 ARQUIVO_IMUNES = "imunidades.json"
 ARQUIVO_CONFIG = "config.json"
-
-HEADERS = {
-    "Content-Type": "application/json",
-    "X-Master-Key": JSONBIN_API_KEY
-}
-
-# === FUNÇÕES PARA JSONBIN.IO ===
-def carregar_bin(bin_id):
-    try:
-        url = f"https://api.jsonbin.io/v3/b/{bin_id}/latest"
-        resp = requests.get(url, headers=HEADERS)
-        print(f"📡 JSONBin Response ({bin_id}):", resp.text)  # Debug
-        if resp.status_code == 200:
-            return resp.json()["record"]
-        print(f"⚠️ Erro ao carregar bin: {resp.text}")
-    except Exception as e:
-        print(f"❌ Erro carregar_bin: {e}")
-    return {}
-
-def salvar_bin(bin_id, dados):
-    try:
-        url = f"https://api.jsonbin.io/v3/b/{bin_id}"
-        resp = requests.put(url, json=dados, headers=HEADERS)
-        if resp.status_code != 200:
-            print(f"⚠️ Erro ao salvar bin: {resp.text}")
-    except Exception as e:
-        print(f"❌ Erro salvar_bin: {e}")
-
-def carregar_json(arquivo):
-    if arquivo == ARQUIVO_CONFIG:
-        return carregar_bin(CONFIG_BIN_ID)
-    elif arquivo == ARQUIVO_IMUNES:
-        return carregar_bin(IMUNES_BIN_ID)
-    return {}
-
-def salvar_json(arquivo, dados):
-    if arquivo == ARQUIVO_CONFIG:
-        salvar_bin(CONFIG_BIN_ID, dados)
-    elif arquivo == ARQUIVO_IMUNES:
-        salvar_bin(IMUNES_BIN_ID, dados)
 
 # === CLASSE DO BOT ===
 class ImuneBot(discord.Client):
@@ -73,41 +30,50 @@ class ImuneBot(discord.Client):
 
 bot = ImuneBot()
 
-# === FUNÇÃO DE CHECAGEM DE CANAL COM AUTO-CONFIGURAÇÃO ===
+# === FUNÇÕES AUXILIARES ===
+def carregar_json(arquivo):
+    if not os.path.exists(arquivo):
+        return {}
+    try:
+        with open(arquivo, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"⚠️ Erro ao carregar {arquivo}: {e}")
+        return {}
+
+def salvar_json(arquivo, dados):
+    try:
+        with open(arquivo, "w", encoding="utf-8") as f:
+            json.dump(dados, f, indent=4, ensure_ascii=False)
+    except IOError as e:
+        print(f"❌ Erro ao salvar {arquivo}: {e}")
+
+def canal_configurado(guild_id):
+    config = carregar_json(ARQUIVO_CONFIG)
+    return config.get(str(guild_id))
+
 def canal_imunidade():
     async def predicate(interaction: discord.Interaction) -> bool:
         guild_id = str(interaction.guild.id)
-        print(f"🔍 Checando canal de imunidade para servidor: {guild_id}")
-
         config = carregar_json(ARQUIVO_CONFIG)
-        print(f"📂 Config atual: {config}")
-
         canal_id = config.get(guild_id)
-        print(f"🎯 Canal configurado: {canal_id}")
-        print(f"🛠 Canal onde comando foi usado: {interaction.channel.id}")
 
         if not canal_id:
-            # Auto-configurar o canal
-            config[guild_id] = interaction.channel.id
-            salvar_json(ARQUIVO_CONFIG, config)
             await interaction.response.send_message(
-                f"⚙️ Canal de imunidade não estava configurado. Agora configurado automaticamente para {interaction.channel.mention}.",
+                "⚙️ O canal de imunidade ainda não foi configurado. Peça a um administrador para usar `/set_canal_imune`.",
                 ephemeral=True
             )
-            print(f"✅ Canal auto-configurado: {interaction.channel.id}")
-            return True
+            return False
 
         if interaction.channel.id == canal_id:
-            print("✅ Canal correto.")
             return True
 
         await interaction.response.send_message(
             "❌ Esse comando só pode ser usado no canal configurado para imunidades.",
             ephemeral=True
         )
-        print("❌ Canal incorreto.")
         return False
-
     return app_commands.check(predicate)
 
 # === COMANDOS ADMINISTRATIVOS ===
@@ -122,7 +88,6 @@ async def set_canal_imune(interaction: discord.Interaction):
         f"✅ Canal de imunidade configurado para: {interaction.channel.mention}",
         ephemeral=False
     )
-    print(f"📌 Canal configurado manualmente: {interaction.channel.id} para servidor {guild_id}")
 
 @set_canal_imune.error
 async def set_canal_imune_error(interaction: discord.Interaction, error):
@@ -217,6 +182,7 @@ async def imune_lista(interaction: discord.Interaction):
             print(f"⚠️ Erro ao processar dados: {e}")
     await interaction.response.send_message(embed=embed)
 
+
 # === VERIFICADOR DE EXPIRAÇÃO ===
 @tasks.loop(hours=1)
 async def verificar_imunidades():
@@ -294,9 +260,6 @@ ping_thread.start()
 if __name__ == "__main__":
     if not TOKEN:
         print("❌ ERRO: DISCORD_BOT_TOKEN não encontrado!")
-        exit(1)
-    if not JSONBIN_API_KEY or not CONFIG_BIN_ID or not IMUNES_BIN_ID:
-        print("❌ ERRO: Variáveis JSONBIN não configuradas!")
         exit(1)
     print(f"🔑 Token configurado (primeiros 10 caracteres): {TOKEN[:10]}...")
     print("🚀 Tentando conectar ao Discord...")
