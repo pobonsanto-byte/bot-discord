@@ -9,6 +9,7 @@ from threading import Thread
 import requests
 import time
 import base64
+import re
 
 # === CONFIGURAÇÃO ===
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -25,7 +26,6 @@ def carregar_json(nome_arquivo):
     url = f"https://api.github.com/repos/{REPO}/contents/{nome_arquivo}?ref={BRANCH}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     r = requests.get(url, headers=headers)
-
     if r.status_code == 200:
         content = base64.b64decode(r.json()["content"]).decode("utf-8")
         try:
@@ -40,21 +40,13 @@ def carregar_json(nome_arquivo):
 def salvar_json(nome_arquivo, dados):
     url = f"https://api.github.com/repos/{REPO}/contents/{nome_arquivo}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-
     conteudo = json.dumps(dados, indent=4, ensure_ascii=False)
     base64_content = base64.b64encode(conteudo.encode()).decode()
-
     r = requests.get(url, headers=headers)
     sha = r.json().get("sha") if r.status_code == 200 else None
-
-    data = {
-        "message": f"Atualizando {nome_arquivo}",
-        "content": base64_content,
-        "branch": BRANCH,
-    }
+    data = {"message": f"Atualizando {nome_arquivo}", "content": base64_content, "branch": BRANCH}
     if sha:
         data["sha"] = sha
-
     r = requests.put(url, headers=headers, json=data)
     if r.status_code in [200, 201]:
         print(f"✅ {nome_arquivo} atualizado no GitHub.")
@@ -64,11 +56,7 @@ def salvar_json(nome_arquivo, dados):
 # === CLASSE DO BOT ===
 class ImuneBot(discord.Client):
     def __init__(self):
-        intents = discord.Intents.default()
-        intents.messages = True
-        intents.reactions = True
-        intents.message_content = True
-        super().__init__(intents=intents)
+        super().__init__(intents=discord.Intents.all())
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
@@ -82,29 +70,20 @@ class ImuneBot(discord.Client):
 bot = ImuneBot()
 
 # === AUXILIARES ===
-def canal_configurado(guild_id):
-    config = carregar_json(ARQUIVO_CONFIG)
-    return config.get(str(guild_id))
-
 def canal_imunidade():
     async def predicate(interaction: discord.Interaction) -> bool:
         guild_id = str(interaction.guild.id)
         config = carregar_json(ARQUIVO_CONFIG)
         canal_id = config.get(guild_id)
-
         if not canal_id:
             await interaction.response.send_message(
-                "⚙️ O canal de imunidade ainda não foi configurado. Peça a um administrador para usar `/set_canal_imune`.",
-                ephemeral=True
+                "⚙️ O canal de imunidade ainda não foi configurado.", ephemeral=True
             )
             return False
-
         if interaction.channel.id == canal_id:
             return True
-
         await interaction.response.send_message(
-            "❌ Esse comando só pode ser usado no canal configurado para imunidades.",
-            ephemeral=True
+            "❌ Esse comando só pode ser usado no canal configurado.", ephemeral=True
         )
         return False
     return app_commands.check(predicate)
@@ -117,52 +96,13 @@ async def set_canal_imune(interaction: discord.Interaction):
     config = carregar_json(ARQUIVO_CONFIG)
     config[guild_id] = interaction.channel.id
     salvar_json(ARQUIVO_CONFIG, config)
-    await interaction.response.send_message(
-        f"✅ Canal de imunidade configurado para: {interaction.channel.mention}",
-        ephemeral=False
-    )
+    await interaction.response.send_message(f"✅ Canal de imunidade configurado para: {interaction.channel.mention}", ephemeral=False)
 
 @set_canal_imune.error
 async def set_canal_imune_error(interaction: discord.Interaction, error):
     if isinstance(error, app_commands.errors.MissingPermissions):
         await interaction.response.send_message("❌ Apenas administradores podem usar este comando.", ephemeral=True)
 
-@bot.tree.command(name="ver_canal_imune", description="Mostra o canal configurado para imunidades.")
-@app_commands.checks.has_permissions(administrator=True)
-async def ver_canal_imune(interaction: discord.Interaction):
-    guild_id = str(interaction.guild.id)
-    config = carregar_json(ARQUIVO_CONFIG)
-    canal_id = config.get(guild_id)
-
-    if not canal_id:
-        await interaction.response.send_message("⚙️ Nenhum canal configurado ainda.", ephemeral=True)
-        return
-
-    canal = interaction.guild.get_channel(canal_id)
-    if canal:
-        await interaction.response.send_message(f"📍 Canal configurado: {canal.mention}", ephemeral=False)
-    else:
-        await interaction.response.send_message(f"⚠️ O canal configurado (ID: `{canal_id}`) não foi encontrado.", ephemeral=True)
-
-@bot.tree.command(name="remover_canal_imune", description="Remove o canal configurado para imunidades.")
-@app_commands.checks.has_permissions(administrator=True)
-async def remover_canal_imune(interaction: discord.Interaction):
-    guild_id = str(interaction.guild.id)
-    config = carregar_json(ARQUIVO_CONFIG)
-
-    if guild_id not in config:
-        await interaction.response.send_message("⚠️ Nenhum canal de imunidade está configurado neste servidor.", ephemeral=True)
-        return
-
-    canal_removido = config[guild_id]
-    del config[guild_id]
-    salvar_json(ARQUIVO_CONFIG, config)
-    await interaction.response.send_message(
-        f"🗑️ Canal de imunidade removido com sucesso (ID: `{canal_removido}`).",
-        ephemeral=False
-    )
-
-# === COMANDOS DE IMUNIDADE ===
 @bot.tree.command(name="imune_add", description="Adiciona um personagem imune (1 por jogador).")
 @canal_imunidade()
 @app_commands.describe(nome_personagem="Nome do personagem", jogo_anime="Nome do jogo/anime")
@@ -182,10 +122,7 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
         "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     salvar_json(ARQUIVO_IMUNES, imunes)
-    await interaction.response.send_message(
-        f"🛡️ {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!",
-        ephemeral=False
-    )
+    await interaction.response.send_message(f"🛡️ {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!", ephemeral=False)
 
 @bot.tree.command(name="imune_lista", description="Mostra a lista atual de personagens imunes.")
 @canal_imunidade()
@@ -201,11 +138,8 @@ async def imune_lista(interaction: discord.Interaction):
             data_criacao = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
             tempo_passado = datetime.now() - data_criacao
             horas_restantes = max(0, 48 - int(tempo_passado.total_seconds() // 3600))
-            embed.add_field(
-                name=f"{dados['personagem']} ({dados['origem']})",
-                value=f"Dono: **{dados['usuario']}**\n⏳ Expira em: {horas_restantes}h",
-                inline=False
-            )
+            embed.add_field(name=f"{dados['personagem']} ({dados['origem']})",
+                            value=f"Dono: **{dados['usuario']}**\n⏳ Expira em: {horas_restantes}h", inline=False)
         except Exception as e:
             print(f"⚠️ Erro ao processar dados: {e}")
     await interaction.response.send_message(embed=embed)
@@ -217,18 +151,14 @@ async def verificar_imunidades():
     configs = carregar_json(ARQUIVO_CONFIG)
     agora = datetime.now()
     alterado = False
-
     for guild_id, usuarios in list(imunes.items()):
         guild = bot.get_guild(int(guild_id))
         canal = None
-
         if guild and guild_id in configs:
             canal = guild.get_channel(configs[guild_id])
-
         if not canal:
             print(f"⚠️ Canal de imunidade não configurado em {guild.name if guild else guild_id}")
             continue
-
         for user_id, dados in list(usuarios.items()):
             try:
                 data_inicial = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
@@ -238,11 +168,17 @@ async def verificar_imunidades():
                     alterado = True
             except Exception as e:
                 print(f"⚠️ Erro ao verificar expiração: {e}")
-
     if alterado:
         salvar_json(ARQUIVO_IMUNES, imunes)
 
-# === EVENTO DE REAÇÃO ===
+# === EVENTO PERSONALIZADO PARA DETECTAR REAÇÕES ===
+avisos_enviados = {}
+
+def limpar_nome(nome):
+    nome = re.sub(r"<:.+?:\d+>", "", nome)
+    nome = re.sub(r"[^\w\s]", "", nome)
+    return nome.lower().strip()
+
 @bot.event
 async def on_reaction_add(reaction, user):
     if user.bot:
@@ -264,19 +200,43 @@ async def on_reaction_add(reaction, user):
     if not mensagem.author.bot or "Mudae" not in mensagem.author.name:
         return
 
-    conteudo = mensagem.content.lower()
+    personagem_nome = ""
+    if mensagem.embeds:
+        embed = mensagem.embeds[0]
+        if embed.title:
+            personagem_nome = embed.title
+        elif embed.description:
+            personagem_nome = embed.description
+
+    if not personagem_nome and mensagem.content:
+        personagem_nome = mensagem.content
+
+    personagem_nome = limpar_nome(personagem_nome)
+    print(f"🔍 [LOG] Usuário {user.name} reagiu com '{reaction.emoji}'. Conteúdo detectado: '{personagem_nome}'")
+
+    encontrou = False
     for user_id, dados in imunes.get(guild_id, {}).items():
-        personagem = dados["personagem"].lower()
-        if personagem in conteudo:
+        if limpar_nome(dados["personagem"]) in personagem_nome:
             dono = dados["usuario"]
+            chave = f"{mensagem.id}-{dados['personagem']}"
+            if chave in avisos_enviados:
+                print(f"⚠️ [LOG] Aviso já enviado para '{dados['personagem']}' nesta mensagem.")
+                return
+
             await mensagem.channel.send(
-                f"⚠️ {user.mention} reagiu a mensagem do Mudae com o personagem **{dados['personagem']} ({dados['origem']})**!\n"
+                f"⚠️ {user.mention} reagiu à mensagem do Mudae com o personagem **{dados['personagem']} ({dados['origem']})** usando {reaction.emoji}!\n"
                 f"💠 Imunidade definida por: {dono}\n"
                 f"{'✅ Você é o dono da imunidade!' if user.name == dono else '❌ Você não é o dono da imunidade!'}"
             )
+            avisos_enviados[chave] = True
+            print(f"✅ [LOG] Imunidade encontrada: {dados['personagem']} — dono: {dono}")
+            encontrou = True
             break
 
-# === EVENTOS ===
+    if not encontrou:
+        print(f"⚠️ [LOG] Nenhuma imunidade encontrada para '{personagem_nome}'.")
+
+# === READY EVENT ===
 @bot.event
 async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
