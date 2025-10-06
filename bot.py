@@ -15,12 +15,7 @@ TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GIST_IMUNIDADES_ID = os.getenv("GIST_IMUNIDADES_ID")
 GIST_CONFIG_ID = os.getenv("GIST_CONFIG_ID")
-
 HEADERS = {"Authorization": f"token {GITHUB_TOKEN}"}
-
-# === ARQUIVOS LOCAIS (não usados, mas necessários para função compatível) ===
-ARQUIVO_IMUNES = "imunidades.json"
-ARQUIVO_CONFIG = "config.json"
 
 # === FUNÇÕES DE GIST ===
 def carregar_gist(gist_id):
@@ -82,14 +77,10 @@ class ImuneBot(discord.Client):
 bot = ImuneBot()
 
 # === FUNÇÕES AUXILIARES ===
-def canal_configurado(guild_id):
-    config = carregar_json(ARQUIVO_CONFIG)
-    return config.get(str(guild_id))
-
 def canal_imunidade():
     async def predicate(interaction: discord.Interaction) -> bool:
         guild_id = str(interaction.guild.id)
-        config = carregar_json(ARQUIVO_CONFIG)
+        config = carregar_json("config.json")
         canal_id = config.get(guild_id)
 
         if not canal_id:
@@ -114,9 +105,9 @@ def canal_imunidade():
 @app_commands.checks.has_permissions(administrator=True)
 async def set_canal_imune(interaction: discord.Interaction):
     guild_id = str(interaction.guild.id)
-    config = carregar_json(ARQUIVO_CONFIG)
+    config = carregar_json("config.json")
     config[guild_id] = interaction.channel.id
-    salvar_json(ARQUIVO_CONFIG, config)
+    salvar_json("config.json", config)
     await interaction.response.send_message(
         f"✅ Canal de imunidade configurado para: {interaction.channel.mention}",
         ephemeral=False
@@ -131,7 +122,7 @@ async def set_canal_imune_error(interaction: discord.Interaction, error):
 @app_commands.checks.has_permissions(administrator=True)
 async def ver_canal_imune(interaction: discord.Interaction):
     guild_id = str(interaction.guild.id)
-    config = carregar_json(ARQUIVO_CONFIG)
+    config = carregar_json("config.json")
     canal_id = config.get(guild_id)
 
     if not canal_id:
@@ -148,7 +139,7 @@ async def ver_canal_imune(interaction: discord.Interaction):
 @app_commands.checks.has_permissions(administrator=True)
 async def remover_canal_imune(interaction: discord.Interaction):
     guild_id = str(interaction.guild.id)
-    config = carregar_json(ARQUIVO_CONFIG)
+    config = carregar_json("config.json")
 
     if guild_id not in config:
         await interaction.response.send_message("⚠️ Nenhum canal de imunidade está configurado neste servidor.", ephemeral=True)
@@ -156,7 +147,7 @@ async def remover_canal_imune(interaction: discord.Interaction):
 
     canal_removido = config[guild_id]
     del config[guild_id]
-    salvar_json(ARQUIVO_CONFIG, config)
+    salvar_json("config.json", config)
     await interaction.response.send_message(
         f"🗑️ Canal de imunidade removido com sucesso (ID: `{canal_removido}`).",
         ephemeral=False
@@ -172,7 +163,7 @@ async def remover_canal_imune_error(interaction: discord.Interaction, error):
 @canal_imunidade()
 @app_commands.describe(nome_personagem="Nome do personagem", jogo_anime="Nome do jogo/anime")
 async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo_anime: str):
-    imunes = carregar_json(ARQUIVO_IMUNES)
+    imunes = carregar_json("imunidades.json")
     guild_id = str(interaction.guild.id)
     if guild_id not in imunes:
         imunes[guild_id] = {}
@@ -186,7 +177,7 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
         "origem": jogo_anime,
         "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
-    salvar_json(ARQUIVO_IMUNES, imunes)
+    salvar_json("imunidades.json", imunes)
     await interaction.response.send_message(
         f"🛡️ {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!",
         ephemeral=False
@@ -195,7 +186,7 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
 @bot.tree.command(name="imune_lista", description="Mostra a lista atual de personagens imunes.")
 @canal_imunidade()
 async def imune_lista(interaction: discord.Interaction):
-    imunes = carregar_json(ARQUIVO_IMUNES)
+    imunes = carregar_json("imunidades.json")
     guild_id = str(interaction.guild.id)
     if guild_id not in imunes or not imunes[guild_id]:
         await interaction.response.send_message("📭 Nenhum personagem imune no momento.")
@@ -218,21 +209,21 @@ async def imune_lista(interaction: discord.Interaction):
 @bot.tree.command(name="imune_remover", description="Remove sua imunidade manualmente.")
 @canal_imunidade()
 async def imune_remover(interaction: discord.Interaction):
-    imunes = carregar_json(ARQUIVO_IMUNES)
+    imunes = carregar_json("imunidades.json")
     guild_id = str(interaction.guild.id)
     user_id = str(interaction.user.id)
     if guild_id not in imunes or user_id not in imunes[guild_id]:
         await interaction.response.send_message("❌ Você não possui imunidade ativa.", ephemeral=True)
         return
     del imunes[guild_id][user_id]
-    salvar_json(ARQUIVO_IMUNES, imunes)
+    salvar_json("imunidades.json", imunes)
     await interaction.response.send_message(f"✅ {interaction.user.mention}, sua imunidade foi removida.", ephemeral=False)
 
 # === VERIFICADOR DE EXPIRAÇÃO ===
 @tasks.loop(hours=1)
 async def verificar_imunidades():
-    imunes = carregar_json(ARQUIVO_IMUNES)
-    configs = carregar_json(ARQUIVO_CONFIG)
+    imunes = carregar_json("imunidades.json")
+    configs = carregar_json("config.json")
     agora = datetime.now()
     alterado = False
 
@@ -258,7 +249,7 @@ async def verificar_imunidades():
                 print(f"⚠️ Erro ao verificar expiração: {e}")
 
     if alterado:
-        salvar_json(ARQUIVO_IMUNES, imunes)
+        salvar_json("imunidades.json", imunes)
 
 # === EVENTOS ===
 @bot.event
