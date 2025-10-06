@@ -22,7 +22,6 @@ BRANCH = os.getenv("GITHUB_BRANCH", "main")
 
 # === FUNÇÕES DE ARMAZENAMENTO ONLINE ===
 def carregar_json(nome_arquivo):
-    """Lê o JSON direto do GitHub"""
     url = f"https://api.github.com/repos/{REPO}/contents/{nome_arquivo}?ref={BRANCH}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     r = requests.get(url, headers=headers)
@@ -39,14 +38,12 @@ def carregar_json(nome_arquivo):
         return {}
 
 def salvar_json(nome_arquivo, dados):
-    """Salva o JSON no GitHub"""
     url = f"https://api.github.com/repos/{REPO}/contents/{nome_arquivo}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
 
     conteudo = json.dumps(dados, indent=4, ensure_ascii=False)
     base64_content = base64.b64encode(conteudo.encode()).decode()
 
-    # Obter SHA atual do arquivo (necessário para PUT)
     r = requests.get(url, headers=headers)
     sha = r.json().get("sha") if r.status_code == 200 else None
 
@@ -67,7 +64,11 @@ def salvar_json(nome_arquivo, dados):
 # === CLASSE DO BOT ===
 class ImuneBot(discord.Client):
     def __init__(self):
-        super().__init__(intents=discord.Intents.default())
+        intents = discord.Intents.default()
+        intents.reactions = True
+        intents.messages = True
+        intents.guilds = True
+        super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
@@ -247,6 +248,60 @@ async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
     await bot.change_presence(activity=discord.Game(name="/set_canal_imune | /imune_add"))
 
+@bot.event
+async def on_reaction_add(reaction, user):
+    try:
+        if user.bot:
+            return
+
+        mensagem = reaction.message
+
+        if not mensagem.author.bot or "mudae" not in mensagem.author.name.lower():
+            return
+
+        configs = carregar_json(ARQUIVO_CONFIG)
+        guild_id = str(mensagem.guild.id)
+        if guild_id not in configs:
+            return
+        canal_id = configs[guild_id]
+        if mensagem.channel.id != canal_id:
+            return
+
+        imunes = carregar_json(ARQUIVO_IMUNES)
+        if guild_id not in imunes:
+            return
+
+        personagem_nome = None
+        if mensagem.embeds:
+            embed = mensagem.embeds[0]
+            personagem_nome = embed.title if embed.title else ""
+        else:
+            personagem_nome = mensagem.content.split("\n")[0] if mensagem.content else ""
+
+        if not personagem_nome:
+            return
+
+        dono_imune = None
+        for user_id, dados in imunes[guild_id].items():
+            if dados["personagem"].lower() in personagem_nome.lower():
+                dono_imune = dados
+                break
+
+        if not dono_imune:
+            return
+
+        canal = mensagem.guild.get_channel(canal_id)
+        if not canal:
+            return
+
+        await canal.send(
+            f"🎯 {user.mention} pegou o personagem **{personagem_nome}**!\n"
+            f"🛡️ Esse personagem estava imune para **{dono_imune['usuario']}**."
+        )
+
+    except Exception as e:
+        print(f"⚠️ Erro no monitoramento de reações: {e}")
+
 # === KEEP ALIVE ===
 app = Flask('')
 
@@ -264,7 +319,6 @@ def keep_alive():
 
 keep_alive()
 
-# === AUTO-PING INTERNO ===
 def auto_ping():
     while True:
         try:
@@ -282,7 +336,6 @@ ping_thread = Thread(target=auto_ping)
 ping_thread.daemon = True
 ping_thread.start()
 
-# === INICIAR BOT ===
 if __name__ == "__main__":
     if not TOKEN:
         print("❌ ERRO: DISCORD_BOT_TOKEN não encontrado!")
