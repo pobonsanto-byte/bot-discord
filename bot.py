@@ -2,52 +2,17 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 from datetime import datetime, timedelta
+import json
 import os
 from flask import Flask
 from threading import Thread
 import requests
 import time
-from pymongo import MongoClient
 
 # === CONFIGURAÇÃO ===
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
-MONGO_URI = os.getenv("MONGO_URI")
-
-# === CONEXÃO COM MONGO ===
-mongo_client = MongoClient(MONGO_URI)
-db = mongo_client["bot_imunidade"]
-config_collection = db["config"]
-imunes_collection = db["imunes"]
-
-# === FUNÇÕES AUXILIARES MONGO ===
-def salvar_config(guild_id, canal_id):
-    config_collection.update_one(
-        {"guild_id": guild_id},
-        {"$set": {"canal_id": canal_id}},
-        upsert=True
-    )
-
-def carregar_config(guild_id):
-    doc = config_collection.find_one({"guild_id": guild_id})
-    return doc["canal_id"] if doc else None
-
-def adicionar_imune(guild_id, user_id, usuario, personagem, origem):
-    imunes_collection.update_one(
-        {"guild_id": guild_id, "user_id": user_id},
-        {"$set": {
-            "usuario": usuario,
-            "personagem": personagem,
-            "origem": origem,
-            "data": datetime.now()
-        }},
-        upsert=True
-    )
-
-def listar_imunes(guild_id):
-    return list(imunes_collection.find({"guild_id": guild_id}))
-
-def remover_imune(guild_id, user_id):
-    imunes_collection.delete_one({"guild_id": guild_id, "user_id": user_id})
+ARQUIVO_IMUNES = "imunidades.json"
+ARQUIVO_CONFIG = "config.json"
 
 # === CLASSE DO BOT ===
 class ImuneBot(discord.Client):
@@ -65,18 +30,45 @@ class ImuneBot(discord.Client):
 
 bot = ImuneBot()
 
-# === CHECK DE CANAL ===
+# === FUNÇÕES AUXILIARES ===
+def carregar_json(arquivo):
+    if not os.path.exists(arquivo):
+        return {}
+    try:
+        with open(arquivo, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"⚠️ Erro ao carregar {arquivo}: {e}")
+        return {}
+
+def salvar_json(arquivo, dados):
+    try:
+        with open(arquivo, "w", encoding="utf-8") as f:
+            json.dump(dados, f, indent=4, ensure_ascii=False)
+    except IOError as e:
+        print(f"❌ Erro ao salvar {arquivo}: {e}")
+
+def canal_configurado(guild_id):
+    config = carregar_json(ARQUIVO_CONFIG)
+    return config.get(str(guild_id))
+
 def canal_imunidade():
     async def predicate(interaction: discord.Interaction) -> bool:
-        canal_id = carregar_config(str(interaction.guild.id))
+        guild_id = str(interaction.guild.id)
+        config = carregar_json(ARQUIVO_CONFIG)
+        canal_id = config.get(guild_id)
+
         if not canal_id:
             await interaction.response.send_message(
-                "⚙️ O canal de imunidade ainda não foi configurado. Use `/set_canal_imune`.",
+                "⚙️ O canal de imunidade ainda não foi configurado. Peça a um administrador para usar `/set_canal_imune`.",
                 ephemeral=True
             )
             return False
+
         if interaction.channel.id == canal_id:
             return True
+
         await interaction.response.send_message(
             "❌ Esse comando só pode ser usado no canal configurado para imunidades.",
             ephemeral=True
@@ -89,63 +81,96 @@ def canal_imunidade():
 @app_commands.checks.has_permissions(administrator=True)
 async def set_canal_imune(interaction: discord.Interaction):
     guild_id = str(interaction.guild.id)
-    salvar_config(guild_id, interaction.channel.id)
+    config = carregar_json(ARQUIVO_CONFIG)
+    config[guild_id] = interaction.channel.id
+    salvar_json(ARQUIVO_CONFIG, config)
     await interaction.response.send_message(
         f"✅ Canal de imunidade configurado para: {interaction.channel.mention}",
         ephemeral=False
     )
 
+@set_canal_imune.error
+async def set_canal_imune_error(interaction: discord.Interaction, error):
+    if isinstance(error, app_commands.errors.MissingPermissions):
+        await interaction.response.send_message("❌ Apenas administradores podem usar este comando.", ephemeral=True)
+
 @bot.tree.command(name="ver_canal_imune", description="Mostra o canal configurado para imunidades.")
 @app_commands.checks.has_permissions(administrator=True)
 async def ver_canal_imune(interaction: discord.Interaction):
-    canal_id = carregar_config(str(interaction.guild.id))
+    guild_id = str(interaction.guild.id)
+    config = carregar_json(ARQUIVO_CONFIG)
+    canal_id = config.get(guild_id)
+
     if not canal_id:
         await interaction.response.send_message("⚙️ Nenhum canal configurado ainda.", ephemeral=True)
         return
+
     canal = interaction.guild.get_channel(canal_id)
     if canal:
         await interaction.response.send_message(f"📍 Canal configurado: {canal.mention}", ephemeral=False)
     else:
-        await interaction.response.send_message(f"⚠️ Canal configurado não encontrado.", ephemeral=True)
+        await interaction.response.send_message(f"⚠️ O canal configurado (ID: `{canal_id}`) não foi encontrado.", ephemeral=True)
 
 @bot.tree.command(name="remover_canal_imune", description="Remove o canal configurado para imunidades.")
 @app_commands.checks.has_permissions(administrator=True)
 async def remover_canal_imune(interaction: discord.Interaction):
     guild_id = str(interaction.guild.id)
-    canal_id = carregar_config(guild_id)
-    if not canal_id:
-        await interaction.response.send_message("⚠️ Nenhum canal de imunidade está configurado.", ephemeral=True)
+    config = carregar_json(ARQUIVO_CONFIG)
+
+    if guild_id not in config:
+        await interaction.response.send_message("⚠️ Nenhum canal de imunidade está configurado neste servidor.", ephemeral=True)
         return
-    config_collection.delete_one({"guild_id": guild_id})
-    await interaction.response.send_message(f"🗑️ Canal de imunidade removido com sucesso (ID: `{canal_id}`).", ephemeral=False)
+
+    canal_removido = config[guild_id]
+    del config[guild_id]
+    salvar_json(ARQUIVO_CONFIG, config)
+    await interaction.response.send_message(
+        f"🗑️ Canal de imunidade removido com sucesso (ID: `{canal_removido}`).",
+        ephemeral=False
+    )
+
+@remover_canal_imune.error
+async def remover_canal_imune_error(interaction: discord.Interaction, error):
+    if isinstance(error, app_commands.errors.MissingPermissions):
+        await interaction.response.send_message("❌ Apenas administradores podem usar este comando.", ephemeral=True)
 
 # === COMANDOS DE IMUNIDADE ===
 @bot.tree.command(name="imune_add", description="Adiciona um personagem imune (1 por jogador).")
 @canal_imunidade()
 @app_commands.describe(nome_personagem="Nome do personagem", jogo_anime="Nome do jogo/anime")
 async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo_anime: str):
+    imunes = carregar_json(ARQUIVO_IMUNES)
     guild_id = str(interaction.guild.id)
+    if guild_id not in imunes:
+        imunes[guild_id] = {}
     user_id = str(interaction.user.id)
-    if imunes_collection.find_one({"guild_id": guild_id, "user_id": user_id}):
+    if user_id in imunes[guild_id]:
         await interaction.response.send_message(f"⚠️ {interaction.user.mention}, você já possui um personagem imune!", ephemeral=True)
         return
-    adicionar_imune(guild_id, user_id, interaction.user.name, nome_personagem, jogo_anime)
-    await interaction.response.send_message(f"🛡️ {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!", ephemeral=False)
+    imunes[guild_id][user_id] = {
+        "usuario": interaction.user.name,
+        "personagem": nome_personagem,
+        "origem": jogo_anime,
+        "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    salvar_json(ARQUIVO_IMUNES, imunes)
+    await interaction.response.send_message(
+        f"🛡️ {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!",
+        ephemeral=False
+    )
 
 @bot.tree.command(name="imune_lista", description="Mostra a lista atual de personagens imunes.")
 @canal_imunidade()
 async def imune_lista(interaction: discord.Interaction):
+    imunes = carregar_json(ARQUIVO_IMUNES)
     guild_id = str(interaction.guild.id)
-    imunes = listar_imunes(guild_id)
-    if not imunes:
+    if guild_id not in imunes or not imunes[guild_id]:
         await interaction.response.send_message("📭 Nenhum personagem imune no momento.")
         return
     embed = discord.Embed(title="🧾 Lista de Personagens Imunes", color=0x5865F2)
-    for dados in imunes:
+    for dados in imunes[guild_id].values():
         try:
-            data_criacao = dados["data"]
-            if isinstance(data_criacao, str):
-                data_criacao = datetime.strptime(data_criacao, "%Y-%m-%d %H:%M:%S.%f")
+            data_criacao = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
             tempo_passado = datetime.now() - data_criacao
             horas_restantes = max(0, 48 - int(tempo_passado.total_seconds() // 3600))
             embed.add_field(
@@ -157,24 +182,38 @@ async def imune_lista(interaction: discord.Interaction):
             print(f"⚠️ Erro ao processar dados: {e}")
     await interaction.response.send_message(embed=embed)
 
+
 # === VERIFICADOR DE EXPIRAÇÃO ===
 @tasks.loop(hours=1)
 async def verificar_imunidades():
+    imunes = carregar_json(ARQUIVO_IMUNES)
+    configs = carregar_json(ARQUIVO_CONFIG)
     agora = datetime.now()
-    for doc in imunes_collection.find({}):
-        try:
-            data_inicial = doc["data"]
-            if isinstance(data_inicial, str):
-                data_inicial = datetime.strptime(data_inicial, "%Y-%m-%d %H:%M:%S.%f")
-            if agora - data_inicial >= timedelta(days=2):
-                guild = bot.get_guild(int(doc["guild_id"]))
-                canal_id = carregar_config(doc["guild_id"])
-                canal = guild.get_channel(canal_id) if guild and canal_id else None
-                if canal:
-                    await canal.send(f"🕒 A imunidade de **{doc['personagem']} ({doc['origem']})** do jogador **{doc['usuario']}** expirou!")
-                remover_imune(doc["guild_id"], doc["user_id"])
-        except Exception as e:
-            print(f"⚠️ Erro ao verificar expiração: {e}")
+    alterado = False
+
+    for guild_id, usuarios in list(imunes.items()):
+        guild = bot.get_guild(int(guild_id))
+        canal = None
+
+        if guild and guild_id in configs:
+            canal = guild.get_channel(configs[guild_id])
+
+        if not canal:
+            print(f"⚠️ Canal de imunidade não configurado em {guild.name if guild else guild_id}")
+            continue
+
+        for user_id, dados in list(usuarios.items()):
+            try:
+                data_inicial = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
+                if agora - data_inicial >= timedelta(days=2):
+                    await canal.send(f"🕒 A imunidade de **{dados['personagem']} ({dados['origem']})** do jogador **{dados['usuario']}** expirou!")
+                    del usuarios[user_id]
+                    alterado = True
+            except Exception as e:
+                print(f"⚠️ Erro ao verificar expiração: {e}")
+
+    if alterado:
+        salvar_json(ARQUIVO_IMUNES, imunes)
 
 # === EVENTOS ===
 @bot.event
@@ -219,8 +258,8 @@ ping_thread.start()
 
 # === INICIAR BOT ===
 if __name__ == "__main__":
-    if not TOKEN or not MONGO_URI:
-        print("❌ ERRO: DISCORD_BOT_TOKEN ou MONGO_URI não encontrados!")
+    if not TOKEN:
+        print("❌ ERRO: DISCORD_BOT_TOKEN não encontrado!")
         exit(1)
     print(f"🔑 Token configurado (primeiros 10 caracteres): {TOKEN[:10]}...")
     print("🚀 Tentando conectar ao Discord...")
