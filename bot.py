@@ -11,8 +11,59 @@ import time
 
 # === CONFIGURAÇÃO ===
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+GIST_IMUNIDADES_ID = os.getenv("GIST_IMUNIDADES_ID")
+GIST_CONFIG_ID = os.getenv("GIST_CONFIG_ID")
+
+HEADERS = {"Authorization": f"token {GITHUB_TOKEN}"}
+
+# === ARQUIVOS LOCAIS (não usados, mas necessários para função compatível) ===
 ARQUIVO_IMUNES = "imunidades.json"
 ARQUIVO_CONFIG = "config.json"
+
+# === FUNÇÕES DE GIST ===
+def carregar_gist(gist_id):
+    try:
+        url = f"https://api.github.com/gists/{gist_id}"
+        resp = requests.get(url, headers=HEADERS)
+        if resp.status_code == 200:
+            files = resp.json().get("files", {})
+            for content in files.values():
+                return json.loads(content.get("content", "{}"))
+    except Exception as e:
+        print(f"⚠️ Erro ao carregar Gist {gist_id}: {e}")
+    return {}
+
+def salvar_gist(gist_id, dados):
+    try:
+        url = f"https://api.github.com/gists/{gist_id}"
+        conteudo = json.dumps(dados, indent=4, ensure_ascii=False)
+        payload = {
+            "files": {
+                "data.json": {"content": conteudo}
+            }
+        }
+        resp = requests.patch(url, headers=HEADERS, json=payload)
+        if resp.status_code == 200:
+            print(f"✅ Dados salvos com sucesso no Gist {gist_id}")
+        else:
+            print(f"❌ Erro ao salvar Gist {gist_id}: {resp.status_code}")
+    except Exception as e:
+        print(f"⚠️ Falha ao salvar no Gist: {e}")
+
+def carregar_json(arquivo):
+    if "imunidades" in arquivo:
+        return carregar_gist(GIST_IMUNIDADES_ID)
+    elif "config" in arquivo:
+        return carregar_gist(GIST_CONFIG_ID)
+    return {}
+
+def salvar_json(arquivo, dados):
+    if "imunidades" in arquivo:
+        salvar_gist(GIST_IMUNIDADES_ID, dados)
+    elif "config" in arquivo:
+        salvar_gist(GIST_CONFIG_ID, dados)
 
 # === CLASSE DO BOT ===
 class ImuneBot(discord.Client):
@@ -31,24 +82,6 @@ class ImuneBot(discord.Client):
 bot = ImuneBot()
 
 # === FUNÇÕES AUXILIARES ===
-def carregar_json(arquivo):
-    if not os.path.exists(arquivo):
-        return {}
-    try:
-        with open(arquivo, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data if isinstance(data, dict) else {}
-    except (json.JSONDecodeError, IOError) as e:
-        print(f"⚠️ Erro ao carregar {arquivo}: {e}")
-        return {}
-
-def salvar_json(arquivo, dados):
-    try:
-        with open(arquivo, "w", encoding="utf-8") as f:
-            json.dump(dados, f, indent=4, ensure_ascii=False)
-    except IOError as e:
-        print(f"❌ Erro ao salvar {arquivo}: {e}")
-
 def canal_configurado(guild_id):
     config = carregar_json(ARQUIVO_CONFIG)
     return config.get(str(guild_id))
@@ -76,7 +109,7 @@ def canal_imunidade():
         return False
     return app_commands.check(predicate)
 
-# === COMANDO ADMIN: CONFIGURAR CANAL ===
+# === COMANDOS ADMINISTRATIVOS ===
 @bot.tree.command(name="set_canal_imune", description="Define o canal onde os comandos de imunidade funcionarão.")
 @app_commands.checks.has_permissions(administrator=True)
 async def set_canal_imune(interaction: discord.Interaction):
@@ -91,6 +124,46 @@ async def set_canal_imune(interaction: discord.Interaction):
 
 @set_canal_imune.error
 async def set_canal_imune_error(interaction: discord.Interaction, error):
+    if isinstance(error, app_commands.errors.MissingPermissions):
+        await interaction.response.send_message("❌ Apenas administradores podem usar este comando.", ephemeral=True)
+
+@bot.tree.command(name="ver_canal_imune", description="Mostra o canal configurado para imunidades.")
+@app_commands.checks.has_permissions(administrator=True)
+async def ver_canal_imune(interaction: discord.Interaction):
+    guild_id = str(interaction.guild.id)
+    config = carregar_json(ARQUIVO_CONFIG)
+    canal_id = config.get(guild_id)
+
+    if not canal_id:
+        await interaction.response.send_message("⚙️ Nenhum canal configurado ainda.", ephemeral=True)
+        return
+
+    canal = interaction.guild.get_channel(canal_id)
+    if canal:
+        await interaction.response.send_message(f"📍 Canal configurado: {canal.mention}", ephemeral=False)
+    else:
+        await interaction.response.send_message(f"⚠️ O canal configurado (ID: `{canal_id}`) não foi encontrado.", ephemeral=True)
+
+@bot.tree.command(name="remover_canal_imune", description="Remove o canal configurado para imunidades.")
+@app_commands.checks.has_permissions(administrator=True)
+async def remover_canal_imune(interaction: discord.Interaction):
+    guild_id = str(interaction.guild.id)
+    config = carregar_json(ARQUIVO_CONFIG)
+
+    if guild_id not in config:
+        await interaction.response.send_message("⚠️ Nenhum canal de imunidade está configurado neste servidor.", ephemeral=True)
+        return
+
+    canal_removido = config[guild_id]
+    del config[guild_id]
+    salvar_json(ARQUIVO_CONFIG, config)
+    await interaction.response.send_message(
+        f"🗑️ Canal de imunidade removido com sucesso (ID: `{canal_removido}`).",
+        ephemeral=False
+    )
+
+@remover_canal_imune.error
+async def remover_canal_imune_error(interaction: discord.Interaction, error):
     if isinstance(error, app_commands.errors.MissingPermissions):
         await interaction.response.send_message("❌ Apenas administradores podem usar este comando.", ephemeral=True)
 
@@ -187,6 +260,7 @@ async def verificar_imunidades():
     if alterado:
         salvar_json(ARQUIVO_IMUNES, imunes)
 
+# === EVENTOS ===
 @bot.event
 async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
@@ -231,6 +305,9 @@ ping_thread.start()
 if __name__ == "__main__":
     if not TOKEN:
         print("❌ ERRO: DISCORD_BOT_TOKEN não encontrado!")
+        exit(1)
+    if not GITHUB_TOKEN or not GIST_IMUNIDADES_ID or not GIST_CONFIG_ID:
+        print("❌ Variáveis de ambiente para Gist não configuradas!")
         exit(1)
     print(f"🔑 Token configurado (primeiros 10 caracteres): {TOKEN[:10]}...")
     print("🚀 Tentando conectar ao Discord...")
