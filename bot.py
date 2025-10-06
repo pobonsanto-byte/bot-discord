@@ -4,10 +4,16 @@ from discord.ext import tasks
 from datetime import datetime, timedelta
 import json
 import os
+from flask import Flask
+from threading import Thread
+import requests
+import time
 
+# === CONFIGURAÇÃO ===
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 ARQUIVO_IMUNES = "imunidades.json"
 
+# === CLASSE DO BOT ===
 class ImuneBot(discord.Client):
     def __init__(self):
         super().__init__(intents=discord.Intents.default())
@@ -23,6 +29,7 @@ class ImuneBot(discord.Client):
 
 bot = ImuneBot()
 
+# === FUNÇÕES AUXILIARES ===
 def carregar_imunes():
     if not os.path.exists(ARQUIVO_IMUNES):
         return {}
@@ -53,6 +60,7 @@ def canal_imunidade():
         return False
     return app_commands.check(predicate)
 
+# === COMANDOS ===
 @bot.tree.command(name="imune_add", description="Adiciona um personagem imune (1 por jogador).")
 @canal_imunidade()
 @app_commands.describe(nome_personagem="Nome do personagem", jogo_anime="Nome do jogo/anime")
@@ -60,18 +68,14 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
     if not interaction.guild:
         await interaction.response.send_message("❌ Este comando só pode ser usado em servidores.", ephemeral=True)
         return
-    
     imunes = carregar_imunes()
     guild_id = str(interaction.guild.id)
-
     if guild_id not in imunes:
         imunes[guild_id] = {}
-
     user_id = str(interaction.user.id)
     if user_id in imunes[guild_id]:
         await interaction.response.send_message(f"⚠️ {interaction.user.mention}, você já possui um personagem imune!", ephemeral=True)
         return
-
     imunes[guild_id][user_id] = {
         "usuario": interaction.user.name,
         "personagem": nome_personagem,
@@ -79,7 +83,6 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
         "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     salvar_imunes(imunes)
-
     await interaction.response.send_message(
         f"🛡️ {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!",
         ephemeral=False
@@ -91,14 +94,11 @@ async def imune_lista(interaction: discord.Interaction):
     if not interaction.guild:
         await interaction.response.send_message("❌ Este comando só pode ser usado em servidores.", ephemeral=True)
         return
-    
     imunes = carregar_imunes()
     guild_id = str(interaction.guild.id)
-
     if guild_id not in imunes or not imunes[guild_id]:
         await interaction.response.send_message("📭 Nenhum personagem imune no momento.")
         return
-
     embed = discord.Embed(title="🧾 Lista de Personagens Imunes", color=0x5865F2)
     for dados in imunes[guild_id].values():
         try:
@@ -112,7 +112,6 @@ async def imune_lista(interaction: discord.Interaction):
             )
         except (KeyError, ValueError) as e:
             print(f"⚠️ Erro ao processar dados de imunidade: {e}")
-
     await interaction.response.send_message(embed=embed)
 
 @bot.tree.command(name="imune_remover", description="Remove sua imunidade manualmente.")
@@ -121,15 +120,12 @@ async def imune_remover(interaction: discord.Interaction):
     if not interaction.guild:
         await interaction.response.send_message("❌ Este comando só pode ser usado em servidores.", ephemeral=True)
         return
-    
     imunes = carregar_imunes()
     guild_id = str(interaction.guild.id)
     user_id = str(interaction.user.id)
-
     if guild_id not in imunes or user_id not in imunes[guild_id]:
         await interaction.response.send_message("❌ Você não possui imunidade ativa.", ephemeral=True)
         return
-
     del imunes[guild_id][user_id]
     salvar_imunes(imunes)
     await interaction.response.send_message(f"✅ {interaction.user.mention}, sua imunidade foi removida.", ephemeral=False)
@@ -139,21 +135,17 @@ async def verificar_imunidades():
     imunes = carregar_imunes()
     agora = datetime.now()
     alterado = False
-
     for guild_id, usuarios in list(imunes.items()):
         canal = None
         guild = bot.get_guild(int(guild_id))
-        
         if guild:
             for c in guild.text_channels:
                 if "imunidade" in c.name.lower():
                     canal = c
                     break
-        
         if not canal:
             print(f"⚠️ Nenhum canal de imunidade encontrado no servidor {guild.name if guild else guild_id}.")
             continue
-
         for user_id, dados in list(usuarios.items()):
             try:
                 data_inicial = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
@@ -162,13 +154,11 @@ async def verificar_imunidades():
                         await canal.send(f"🕒 A imunidade de **{dados['personagem']} ({dados['origem']})** do jogador **{dados['usuario']}** expirou!")
                     except discord.errors.HTTPException as e:
                         print(f"❌ Erro ao enviar mensagem de expiração: {e}")
-                    
                     del usuarios[user_id]
                     alterado = True
                     print(f"🔁 Imunidade expirada: {dados['usuario']} ({dados['personagem']})")
             except (KeyError, ValueError) as e:
                 print(f"⚠️ Dados inválidos para user_id {user_id}: {e}")
-
     if alterado:
         salvar_imunes(imunes)
 
@@ -177,24 +167,50 @@ async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
     await bot.change_presence(activity=discord.Game(name="/imune_add | /imune_lista"))
 
+# === KEEP ALIVE ===
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "🤖 Bot rodando!"
+
+def run():
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.start()
+
+keep_alive()
+
+# === AUTO-PING INTERNO ===
+def auto_ping():
+    while True:
+        try:
+            url = os.environ.get("REPLIT_URL")  # Coloque seu link do Replit aqui
+            if url:
+                requests.get(url)
+                print(f"🔄 Auto-ping enviado para {url}")
+            else:
+                print("⚠️ REPLIT_URL não definido.")
+        except Exception as e:
+            print(f"❌ Erro no auto-ping: {e}")
+        time.sleep(300)  # ping a cada 5 minutos
+
+ping_thread = Thread(target=auto_ping)
+ping_thread.daemon = True
+ping_thread.start()
+
+# === INICIAR BOT ===
 if __name__ == "__main__":
     if not TOKEN:
         print("❌ ERRO: DISCORD_BOT_TOKEN não encontrado nas variáveis de ambiente!")
-        print("   Configure o token do bot nas variáveis de ambiente do Replit.")
         exit(1)
-    
     print(f"🔑 Token configurado (primeiros 10 caracteres): {TOKEN[:10]}...")
     print("🚀 Tentando conectar ao Discord...")
-    
     try:
         bot.run(TOKEN)
     except discord.errors.LoginFailure:
-        print("\n❌ ERRO DE AUTENTICAÇÃO!")
-        print("   O token do bot está inválido ou expirou.")
-        print("   Por favor, gere um novo token em:")
-        print("   https://discord.com/developers/applications")
-        print("   1. Selecione sua aplicação")
-        print("   2. Vá em 'Bot'")
-        print("   3. Clique em 'Reset Token' e copie o novo token")
-        print("   4. Cole o token nas variáveis de ambiente do Replit")
+        print("❌ ERRO DE AUTENTICAÇÃO! Token inválido ou expirado.")
         exit(1)
