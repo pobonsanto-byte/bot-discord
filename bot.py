@@ -65,9 +65,9 @@ def salvar_json(nome_arquivo, dados):
 class ImuneBot(discord.Client):
     def __init__(self):
         intents = discord.Intents.default()
-        intents.reactions = True
         intents.messages = True
-        intents.guilds = True
+        intents.reactions = True
+        intents.message_content = True
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
 
@@ -242,65 +242,45 @@ async def verificar_imunidades():
     if alterado:
         salvar_json(ARQUIVO_IMUNES, imunes)
 
+# === EVENTO DE REAÇÃO ===
+@bot.event
+async def on_reaction_add(reaction, user):
+    if user.bot:
+        return
+
+    mensagem = reaction.message
+    guild = mensagem.guild
+    if not guild:
+        return
+
+    guild_id = str(guild.id)
+    imunes = carregar_json(ARQUIVO_IMUNES)
+    config = carregar_json(ARQUIVO_CONFIG)
+    canal_id = config.get(guild_id)
+
+    if not canal_id or canal_id != mensagem.channel.id:
+        return
+
+    if not mensagem.author.bot or "Mudae" not in mensagem.author.name:
+        return
+
+    conteudo = mensagem.content.lower()
+    for user_id, dados in imunes.get(guild_id, {}).items():
+        personagem = dados["personagem"].lower()
+        if personagem in conteudo:
+            dono = dados["usuario"]
+            await mensagem.channel.send(
+                f"⚠️ {user.mention} reagiu a mensagem do Mudae com o personagem **{dados['personagem']} ({dados['origem']})**!\n"
+                f"💠 Imunidade definida por: {dono}\n"
+                f"{'✅ Você é o dono da imunidade!' if user.name == dono else '❌ Você não é o dono da imunidade!'}"
+            )
+            break
+
 # === EVENTOS ===
 @bot.event
 async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
     await bot.change_presence(activity=discord.Game(name="/set_canal_imune | /imune_add"))
-
-@bot.event
-async def on_reaction_add(reaction, user):
-    try:
-        if user.bot:
-            return
-
-        mensagem = reaction.message
-
-        if not mensagem.author.bot or "mudae" not in mensagem.author.name.lower():
-            return
-
-        configs = carregar_json(ARQUIVO_CONFIG)
-        guild_id = str(mensagem.guild.id)
-        if guild_id not in configs:
-            return
-        canal_id = configs[guild_id]
-        if mensagem.channel.id != canal_id:
-            return
-
-        imunes = carregar_json(ARQUIVO_IMUNES)
-        if guild_id not in imunes:
-            return
-
-        personagem_nome = None
-        if mensagem.embeds:
-            embed = mensagem.embeds[0]
-            personagem_nome = embed.title if embed.title else ""
-        else:
-            personagem_nome = mensagem.content.split("\n")[0] if mensagem.content else ""
-
-        if not personagem_nome:
-            return
-
-        dono_imune = None
-        for user_id, dados in imunes[guild_id].items():
-            if dados["personagem"].lower() in personagem_nome.lower():
-                dono_imune = dados
-                break
-
-        if not dono_imune:
-            return
-
-        canal = mensagem.guild.get_channel(canal_id)
-        if not canal:
-            return
-
-        await canal.send(
-            f"🎯 {user.mention} pegou o personagem **{personagem_nome}**!\n"
-            f"🛡️ Esse personagem estava imune para **{dono_imune['usuario']}**."
-        )
-
-    except Exception as e:
-        print(f"⚠️ Erro no monitoramento de reações: {e}")
 
 # === KEEP ALIVE ===
 app = Flask('')
@@ -319,6 +299,7 @@ def keep_alive():
 
 keep_alive()
 
+# === AUTO-PING INTERNO ===
 def auto_ping():
     while True:
         try:
@@ -336,6 +317,7 @@ ping_thread = Thread(target=auto_ping)
 ping_thread.daemon = True
 ping_thread.start()
 
+# === INICIAR BOT ===
 if __name__ == "__main__":
     if not TOKEN:
         print("❌ ERRO: DISCORD_BOT_TOKEN não encontrado!")
