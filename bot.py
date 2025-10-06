@@ -168,19 +168,42 @@ async def remover_canal_imune(interaction: discord.Interaction):
 async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo_anime: str):
     imunes = carregar_json(ARQUIVO_IMUNES)
     guild_id = str(interaction.guild.id)
+
     if guild_id not in imunes:
         imunes[guild_id] = {}
+
     user_id = str(interaction.user.id)
+
+    # Verifica se o jogador já tem imunidade
     if user_id in imunes[guild_id]:
-        await interaction.response.send_message(f"⚠️ {interaction.user.mention}, você já possui um personagem imune!", ephemeral=True)
+        await interaction.response.send_message(
+            f"⚠️ {interaction.user.mention}, você já possui um personagem imune!",
+            ephemeral=True
+        )
         return
+
+    # Normaliza o nome do personagem (para comparar sem acento e sem maiúsculas)
+    nome_personagem_normalizado = nome_personagem.strip().lower()
+
+    # Verifica se o personagem já foi escolhido (mesmo nome, ignorando origem)
+    for dados in imunes[guild_id].values():
+        if dados["personagem"].strip().lower() == nome_personagem_normalizado:
+            await interaction.response.send_message(
+                f"❌ O personagem **{nome_personagem}** já foi escolhido por **{dados['usuario']}**!",
+                ephemeral=True
+            )
+            return
+
+    # Adiciona novo personagem imune
     imunes[guild_id][user_id] = {
         "usuario": interaction.user.name,
         "personagem": nome_personagem,
         "origem": jogo_anime,
         "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
+
     salvar_json(ARQUIVO_IMUNES, imunes)
+
     await interaction.response.send_message(
         f"🛡️ {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!",
         ephemeral=False
@@ -194,6 +217,7 @@ async def imune_lista(interaction: discord.Interaction):
     if guild_id not in imunes or not imunes[guild_id]:
         await interaction.response.send_message("📭 Nenhum personagem imune no momento.")
         return
+
     embed = discord.Embed(title="🧾 Lista de Personagens Imunes", color=0x5865F2)
     for dados in imunes[guild_id].values():
         try:
@@ -202,7 +226,7 @@ async def imune_lista(interaction: discord.Interaction):
             horas_restantes = max(0, 48 - int(tempo_passado.total_seconds() // 3600))
             embed.add_field(
                 name=f"{dados['personagem']} ({dados['origem']})",
-                value=f"Dono: **{dados['usuario']}**\n⏳ Expira em: {horas_restantes}h",
+                value=f"👤 Dono: **{dados['usuario']}**\n⏳ Expira em **{horas_restantes}h**",
                 inline=False
             )
         except Exception as e:
