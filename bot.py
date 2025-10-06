@@ -57,10 +57,6 @@ class ImuneBot(discord.Client):
 
 bot = ImuneBot(intents=intents)
 
-def canal_configurado(guild_id):
-    config = carregar_json(ARQUIVO_CONFIG)
-    return config.get(str(guild_id))
-
 def canal_imunidade():
     async def predicate(interaction: discord.Interaction) -> bool:
         config = carregar_json(ARQUIVO_CONFIG)
@@ -73,6 +69,36 @@ def canal_imunidade():
         await interaction.response.send_message("❌ Esse comando só pode ser usado no canal configurado.", ephemeral=True)
         return False
     return app_commands.check(predicate)
+
+@bot.tree.command(name="set_canal_imune")
+@app_commands.checks.has_permissions(administrator=True)
+async def set_canal_imune(interaction: discord.Interaction):
+    config = carregar_json(ARQUIVO_CONFIG)
+    config[str(interaction.guild.id)] = interaction.channel.id
+    salvar_json(ARQUIVO_CONFIG, config)
+    await interaction.response.send_message(f"✅ Canal configurado: {interaction.channel.mention}")
+
+@bot.tree.command(name="ver_canal_imune")
+@app_commands.checks.has_permissions(administrator=True)
+async def ver_canal_imune(interaction: discord.Interaction):
+    config = carregar_json(ARQUIVO_CONFIG)
+    canal_id = config.get(str(interaction.guild.id))
+    if canal_id:
+        canal = interaction.guild.get_channel(canal_id)
+        await interaction.response.send_message(f"📍 Canal configurado: {canal.mention if canal else 'não encontrado'}")
+    else:
+        await interaction.response.send_message("⚙️ Nenhum canal configurado.")
+
+@bot.tree.command(name="remover_canal_imune")
+@app_commands.checks.has_permissions(administrator=True)
+async def remover_canal_imune(interaction: discord.Interaction):
+    config = carregar_json(ARQUIVO_CONFIG)
+    if str(interaction.guild.id) in config:
+        del config[str(interaction.guild.id)]
+        salvar_json(ARQUIVO_CONFIG, config)
+        await interaction.response.send_message("🗑️ Canal removido com sucesso")
+    else:
+        await interaction.response.send_message("⚠️ Nenhum canal configurado.")
 
 @bot.tree.command(name="imune_add")
 @canal_imunidade()
@@ -88,6 +114,22 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
     imunes[guild_id][str(interaction.user.id)] = {"usuario": interaction.user.name,"personagem": nome_personagem,"origem": jogo_anime,"data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
     salvar_json(ARQUIVO_IMUNES, imunes)
     await interaction.response.send_message(f"🛡️ {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!")
+
+@bot.tree.command(name="imune_lista")
+@canal_imunidade()
+async def imune_lista(interaction: discord.Interaction):
+    imunes = carregar_json(ARQUIVO_IMUNES)
+    guild_id = str(interaction.guild.id)
+    if guild_id not in imunes or not imunes[guild_id]:
+        await interaction.response.send_message("📭 Nenhum personagem imune no momento.")
+        return
+    embed = discord.Embed(title="🧾 Lista de Personagens Imunes", color=0x5865F2)
+    for dados in imunes[guild_id].values():
+        data_criacao = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
+        tempo_passado = datetime.now() - data_criacao
+        horas_restantes = max(0, 48 - int(tempo_passado.total_seconds() // 3600))
+        embed.add_field(name=f"{dados['personagem']} ({dados['origem']})", value=f"Dono: **{dados['usuario']}**\n⏳ Expira em: {horas_restantes}h", inline=False)
+    await interaction.response.send_message(embed=embed)
 
 @bot.event
 async def on_reaction_add(reaction, user):
