@@ -27,6 +27,7 @@ def carregar_bin(bin_id):
     try:
         url = f"https://api.jsonbin.io/v3/b/{bin_id}/latest"
         resp = requests.get(url, headers=HEADERS)
+        print(f"📡 JSONBin Response ({bin_id}):", resp.text)  # Debug
         if resp.status_code == 200:
             return resp.json()["record"]
         print(f"⚠️ Erro ao carregar bin: {resp.text}")
@@ -72,32 +73,41 @@ class ImuneBot(discord.Client):
 
 bot = ImuneBot()
 
-# === FUNÇÕES AUXILIARES ===
-def canal_configurado(guild_id):
-    config = carregar_json(ARQUIVO_CONFIG)
-    return config.get(str(guild_id))
-
+# === FUNÇÃO DE CHECAGEM DE CANAL COM AUTO-CONFIGURAÇÃO ===
 def canal_imunidade():
     async def predicate(interaction: discord.Interaction) -> bool:
         guild_id = str(interaction.guild.id)
+        print(f"🔍 Checando canal de imunidade para servidor: {guild_id}")
+
         config = carregar_json(ARQUIVO_CONFIG)
+        print(f"📂 Config atual: {config}")
+
         canal_id = config.get(guild_id)
+        print(f"🎯 Canal configurado: {canal_id}")
+        print(f"🛠 Canal onde comando foi usado: {interaction.channel.id}")
 
         if not canal_id:
+            # Auto-configurar o canal
+            config[guild_id] = interaction.channel.id
+            salvar_json(ARQUIVO_CONFIG, config)
             await interaction.response.send_message(
-                "⚙️ O canal de imunidade ainda não foi configurado. Peça a um administrador para usar `/set_canal_imune`.",
+                f"⚙️ Canal de imunidade não estava configurado. Agora configurado automaticamente para {interaction.channel.mention}.",
                 ephemeral=True
             )
-            return False
+            print(f"✅ Canal auto-configurado: {interaction.channel.id}")
+            return True
 
         if interaction.channel.id == canal_id:
+            print("✅ Canal correto.")
             return True
 
         await interaction.response.send_message(
             "❌ Esse comando só pode ser usado no canal configurado para imunidades.",
             ephemeral=True
         )
+        print("❌ Canal incorreto.")
         return False
+
     return app_commands.check(predicate)
 
 # === COMANDOS ADMINISTRATIVOS ===
@@ -112,6 +122,7 @@ async def set_canal_imune(interaction: discord.Interaction):
         f"✅ Canal de imunidade configurado para: {interaction.channel.mention}",
         ephemeral=False
     )
+    print(f"📌 Canal configurado manualmente: {interaction.channel.id} para servidor {guild_id}")
 
 @set_canal_imune.error
 async def set_canal_imune_error(interaction: discord.Interaction, error):
