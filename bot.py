@@ -65,7 +65,14 @@ def salvar_json(nome_arquivo, dados):
 # === CLASSE DO BOT ===
 class ImuneBot(discord.Client):
     def __init__(self):
-        super().__init__(intents=discord.Intents.all())
+        intents = discord.Intents.default()
+        intents.messages = True
+        intents.reactions = True
+        intents.guilds = True
+        intents.members = True  # Privileged Intent
+        intents.message_content = True  # Privileged Intent
+
+        super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
