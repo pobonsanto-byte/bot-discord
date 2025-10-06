@@ -8,11 +8,61 @@ from flask import Flask
 from threading import Thread
 import requests
 import time
+import base64
 
 # === CONFIGURAÇÃO ===
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 ARQUIVO_IMUNES = "imunidades.json"
 ARQUIVO_CONFIG = "config.json"
+
+# === CONFIG GITHUB ===
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+REPO = os.getenv("GITHUB_REPO")
+BRANCH = os.getenv("GITHUB_BRANCH", "main")
+
+# === FUNÇÕES DE ARMAZENAMENTO ONLINE ===
+def carregar_json(nome_arquivo):
+    """Lê o JSON direto do GitHub"""
+    url = f"https://api.github.com/repos/{REPO}/contents/{nome_arquivo}?ref={BRANCH}"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    r = requests.get(url, headers=headers)
+
+    if r.status_code == 200:
+        content = base64.b64decode(r.json()["content"]).decode("utf-8")
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            print(f"⚠️ Erro ao decodificar {nome_arquivo}")
+            return {}
+    else:
+        print(f"⚠️ Não foi possível carregar {nome_arquivo}: {r.status_code}")
+        return {}
+
+def salvar_json(nome_arquivo, dados):
+    """Salva o JSON no GitHub"""
+    url = f"https://api.github.com/repos/{REPO}/contents/{nome_arquivo}"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+
+    conteudo = json.dumps(dados, indent=4, ensure_ascii=False)
+    base64_content = base64.b64encode(conteudo.encode()).decode()
+
+    # Obter SHA atual do arquivo (necessário para PUT)
+    r = requests.get(url, headers=headers)
+    sha = r.json().get("sha") if r.status_code == 200 else None
+
+    data = {
+        "message": f"Atualizando {nome_arquivo}",
+        "content": base64_content,
+        "branch": BRANCH,
+    }
+    if sha:
+        data["sha"] = sha
+
+    r = requests.put(url, headers=headers, json=data)
+    if r.status_code in [200, 201]:
+        print(f"✅ {nome_arquivo} atualizado no GitHub.")
+    else:
+        print(f"❌ Erro ao salvar {nome_arquivo}: {r.status_code} - {r.text}")
 
 # === CLASSE DO BOT ===
 class ImuneBot(discord.Client):
@@ -30,25 +80,7 @@ class ImuneBot(discord.Client):
 
 bot = ImuneBot()
 
-# === FUNÇÕES AUXILIARES ===
-def carregar_json(arquivo):
-    if not os.path.exists(arquivo):
-        return {}
-    try:
-        with open(arquivo, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            return data if isinstance(data, dict) else {}
-    except (json.JSONDecodeError, IOError) as e:
-        print(f"⚠️ Erro ao carregar {arquivo}: {e}")
-        return {}
-
-def salvar_json(arquivo, dados):
-    try:
-        with open(arquivo, "w", encoding="utf-8") as f:
-            json.dump(dados, f, indent=4, ensure_ascii=False)
-    except IOError as e:
-        print(f"❌ Erro ao salvar {arquivo}: {e}")
-
+# === AUXILIARES ===
 def canal_configurado(guild_id):
     config = carregar_json(ARQUIVO_CONFIG)
     return config.get(str(guild_id))
@@ -129,11 +161,6 @@ async def remover_canal_imune(interaction: discord.Interaction):
         ephemeral=False
     )
 
-@remover_canal_imune.error
-async def remover_canal_imune_error(interaction: discord.Interaction, error):
-    if isinstance(error, app_commands.errors.MissingPermissions):
-        await interaction.response.send_message("❌ Apenas administradores podem usar este comando.", ephemeral=True)
-
 # === COMANDOS DE IMUNIDADE ===
 @bot.tree.command(name="imune_add", description="Adiciona um personagem imune (1 por jogador).")
 @canal_imunidade()
@@ -181,7 +208,6 @@ async def imune_lista(interaction: discord.Interaction):
         except Exception as e:
             print(f"⚠️ Erro ao processar dados: {e}")
     await interaction.response.send_message(embed=embed)
-
 
 # === VERIFICADOR DE EXPIRAÇÃO ===
 @tasks.loop(hours=1)
