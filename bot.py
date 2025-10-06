@@ -22,36 +22,52 @@ BRANCH = os.getenv("GITHUB_BRANCH", "main")
 
 # === FUNÇÕES DE ARMAZENAMENTO ONLINE ===
 def carregar_json(nome_arquivo):
+    """Lê o JSON direto do GitHub"""
     url = f"https://api.github.com/repos/{REPO}/contents/{nome_arquivo}?ref={BRANCH}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     r = requests.get(url, headers=headers)
+
     if r.status_code == 200:
         content = base64.b64decode(r.json()["content"]).decode("utf-8")
         try:
             return json.loads(content)
         except json.JSONDecodeError:
+            print(f"⚠️ Erro ao decodificar {nome_arquivo}")
             return {}
-    return {}
+    else:
+        print(f"⚠️ Não foi possível carregar {nome_arquivo}: {r.status_code}")
+        return {}
 
 def salvar_json(nome_arquivo, dados):
+    """Salva o JSON no GitHub"""
     url = f"https://api.github.com/repos/{REPO}/contents/{nome_arquivo}"
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+
     conteudo = json.dumps(dados, indent=4, ensure_ascii=False)
     base64_content = base64.b64encode(conteudo.encode()).decode()
+
+    # Obter SHA atual do arquivo (necessário para PUT)
     r = requests.get(url, headers=headers)
     sha = r.json().get("sha") if r.status_code == 200 else None
-    data = {"message": f"Atualizando {nome_arquivo}", "content": base64_content, "branch": BRANCH}
+
+    data = {
+        "message": f"Atualizando {nome_arquivo}",
+        "content": base64_content,
+        "branch": BRANCH,
+    }
     if sha:
         data["sha"] = sha
-    requests.put(url, headers=headers, json=data)
+
+    r = requests.put(url, headers=headers, json=data)
+    if r.status_code in [200, 201]:
+        print(f"✅ {nome_arquivo} atualizado no GitHub.")
+    else:
+        print(f"❌ Erro ao salvar {nome_arquivo}: {r.status_code} - {r.text}")
 
 # === CLASSE DO BOT ===
 class ImuneBot(discord.Client):
     def __init__(self):
-        intents = discord.Intents.default()
-        intents.message_content = True
-        intents.reactions = True
-        super().__init__(intents=intents)
+        super().__init__(intents=discord.Intents.default())
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
@@ -74,14 +90,17 @@ def canal_imunidade():
         guild_id = str(interaction.guild.id)
         config = carregar_json(ARQUIVO_CONFIG)
         canal_id = config.get(guild_id)
+
         if not canal_id:
             await interaction.response.send_message(
-                "⚙️ O canal de imunidade ainda não foi configurado. Use `/set_canal_imune`.",
+                "⚙️ O canal de imunidade ainda não foi configurado. Peça a um administrador para usar `/set_canal_imune`.",
                 ephemeral=True
             )
             return False
+
         if interaction.channel.id == canal_id:
             return True
+
         await interaction.response.send_message(
             "❌ Esse comando só pode ser usado no canal configurado para imunidades.",
             ephemeral=True
@@ -97,7 +116,15 @@ async def set_canal_imune(interaction: discord.Interaction):
     config = carregar_json(ARQUIVO_CONFIG)
     config[guild_id] = interaction.channel.id
     salvar_json(ARQUIVO_CONFIG, config)
-    await interaction.response.send_message(f"✅ Canal de imunidade configurado para: {interaction.channel.mention}")
+    await interaction.response.send_message(
+        f"✅ Canal de imunidade configurado para: {interaction.channel.mention}",
+        ephemeral=False
+    )
+
+@set_canal_imune.error
+async def set_canal_imune_error(interaction: discord.Interaction, error):
+    if isinstance(error, app_commands.errors.MissingPermissions):
+        await interaction.response.send_message("❌ Apenas administradores podem usar este comando.", ephemeral=True)
 
 @bot.tree.command(name="ver_canal_imune", description="Mostra o canal configurado para imunidades.")
 @app_commands.checks.has_permissions(administrator=True)
@@ -105,26 +132,34 @@ async def ver_canal_imune(interaction: discord.Interaction):
     guild_id = str(interaction.guild.id)
     config = carregar_json(ARQUIVO_CONFIG)
     canal_id = config.get(guild_id)
+
     if not canal_id:
         await interaction.response.send_message("⚙️ Nenhum canal configurado ainda.", ephemeral=True)
         return
+
     canal = interaction.guild.get_channel(canal_id)
     if canal:
-        await interaction.response.send_message(f"📍 Canal configurado: {canal.mention}")
+        await interaction.response.send_message(f"📍 Canal configurado: {canal.mention}", ephemeral=False)
     else:
-        await interaction.response.send_message(f"⚠️ O canal configurado (ID: `{canal_id}`) não foi encontrado.")
+        await interaction.response.send_message(f"⚠️ O canal configurado (ID: `{canal_id}`) não foi encontrado.", ephemeral=True)
 
 @bot.tree.command(name="remover_canal_imune", description="Remove o canal configurado para imunidades.")
 @app_commands.checks.has_permissions(administrator=True)
 async def remover_canal_imune(interaction: discord.Interaction):
     guild_id = str(interaction.guild.id)
     config = carregar_json(ARQUIVO_CONFIG)
+
     if guild_id not in config:
-        await interaction.response.send_message("⚠️ Nenhum canal de imunidade está configurado.", ephemeral=True)
+        await interaction.response.send_message("⚠️ Nenhum canal de imunidade está configurado neste servidor.", ephemeral=True)
         return
+
+    canal_removido = config[guild_id]
     del config[guild_id]
     salvar_json(ARQUIVO_CONFIG, config)
-    await interaction.response.send_message(f"🗑️ Canal de imunidade removido com sucesso.")
+    await interaction.response.send_message(
+        f"🗑️ Canal de imunidade removido com sucesso (ID: `{canal_removido}`).",
+        ephemeral=False
+    )
 
 # === COMANDOS DE IMUNIDADE ===
 @bot.tree.command(name="imune_add", description="Adiciona um personagem imune (1 por jogador).")
@@ -135,10 +170,6 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
     guild_id = str(interaction.guild.id)
     if guild_id not in imunes:
         imunes[guild_id] = {}
-    for uid, data in imunes[guild_id].items():
-        if data["personagem"].lower() == nome_personagem.lower():
-            await interaction.response.send_message(f"⚠️ O personagem **{nome_personagem}** já está imune!", ephemeral=True)
-            return
     user_id = str(interaction.user.id)
     if user_id in imunes[guild_id]:
         await interaction.response.send_message(f"⚠️ {interaction.user.mention}, você já possui um personagem imune!", ephemeral=True)
@@ -150,7 +181,10 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
         "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     salvar_json(ARQUIVO_IMUNES, imunes)
-    await interaction.response.send_message(f"🛡️ {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!")
+    await interaction.response.send_message(
+        f"🛡️ {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!",
+        ephemeral=False
+    )
 
 @bot.tree.command(name="imune_lista", description="Mostra a lista atual de personagens imunes.")
 @canal_imunidade()
@@ -162,9 +196,17 @@ async def imune_lista(interaction: discord.Interaction):
         return
     embed = discord.Embed(title="🧾 Lista de Personagens Imunes", color=0x5865F2)
     for dados in imunes[guild_id].values():
-        data_criacao = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
-        horas_restantes = max(0, 48 - int((datetime.now() - data_criacao).total_seconds() // 3600))
-        embed.add_field(name=f"{dados['personagem']} ({dados['origem']})", value=f"Dono: **{dados['usuario']}**\n⏳ Expira em: {horas_restantes}h", inline=False)
+        try:
+            data_criacao = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
+            tempo_passado = datetime.now() - data_criacao
+            horas_restantes = max(0, 48 - int(tempo_passado.total_seconds() // 3600))
+            embed.add_field(
+                name=f"{dados['personagem']} ({dados['origem']})",
+                value=f"Dono: **{dados['usuario']}**\n⏳ Expira em: {horas_restantes}h",
+                inline=False
+            )
+        except Exception as e:
+            print(f"⚠️ Erro ao processar dados: {e}")
     await interaction.response.send_message(embed=embed)
 
 # === VERIFICADOR DE EXPIRAÇÃO ===
@@ -174,42 +216,30 @@ async def verificar_imunidades():
     configs = carregar_json(ARQUIVO_CONFIG)
     agora = datetime.now()
     alterado = False
+
     for guild_id, usuarios in list(imunes.items()):
         guild = bot.get_guild(int(guild_id))
         canal = None
+
         if guild and guild_id in configs:
             canal = guild.get_channel(configs[guild_id])
+
         if not canal:
+            print(f"⚠️ Canal de imunidade não configurado em {guild.name if guild else guild_id}")
             continue
+
         for user_id, dados in list(usuarios.items()):
-            data_inicial = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
-            if agora - data_inicial >= timedelta(days=2):
-                await canal.send(f"🕒 A imunidade de **{dados['personagem']} ({dados['origem']})** do jogador **{dados['usuario']}** expirou!")
-                del usuarios[user_id]
-                alterado = True
+            try:
+                data_inicial = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
+                if agora - data_inicial >= timedelta(days=2):
+                    await canal.send(f"🕒 A imunidade de **{dados['personagem']} ({dados['origem']})** do jogador **{dados['usuario']}** expirou!")
+                    del usuarios[user_id]
+                    alterado = True
+            except Exception as e:
+                print(f"⚠️ Erro ao verificar expiração: {e}")
+
     if alterado:
         salvar_json(ARQUIVO_IMUNES, imunes)
-
-# === MONITORAMENTO DE REAÇÕES ===
-@bot.event
-async def on_raw_reaction_add(payload):
-    imunes = carregar_json(ARQUIVO_IMUNES)
-    configs = carregar_json(ARQUIVO_CONFIG)
-    guild_id = str(payload.guild_id)
-    if guild_id not in imunes:
-        return
-    canal_id = configs.get(guild_id)
-    if not canal_id:
-        return
-    canal = bot.get_channel(canal_id)
-    if not canal:
-        return
-    msg = await canal.fetch_message(payload.message_id)
-    for user_id, dados in imunes[guild_id].items():
-        if dados["personagem"].lower() in msg.content.lower():
-            if str(payload.user_id) != user_id:
-                usuario = await bot.fetch_user(payload.user_id)
-                await canal.send(f"⚠️ {usuario.mention} pegou o personagem **{dados['personagem']}** que está imune de **{dados['usuario']}**!")
 
 # === EVENTOS ===
 @bot.event
@@ -219,27 +249,35 @@ async def on_ready():
 
 # === KEEP ALIVE ===
 app = Flask('')
+
 @app.route('/')
 def home():
     return "🤖 Bot rodando!"
+
 def run():
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
+
 def keep_alive():
     t = Thread(target=run)
     t.start()
+
 keep_alive()
 
-# === AUTO-PING ===
+# === AUTO-PING INTERNO ===
 def auto_ping():
     while True:
         try:
             url = os.environ.get("REPLIT_URL")
             if url:
                 requests.get(url)
-        except:
-            pass
+                print(f"🔄 Auto-ping enviado para {url}")
+            else:
+                print("⚠️ REPLIT_URL não definido.")
+        except Exception as e:
+            print(f"❌ Erro no auto-ping: {e}")
         time.sleep(300)
+
 ping_thread = Thread(target=auto_ping)
 ping_thread.daemon = True
 ping_thread.start()
@@ -247,5 +285,12 @@ ping_thread.start()
 # === INICIAR BOT ===
 if __name__ == "__main__":
     if not TOKEN:
+        print("❌ ERRO: DISCORD_BOT_TOKEN não encontrado!")
         exit(1)
-    bot.run(TOKEN)
+    print(f"🔑 Token configurado (primeiros 10 caracteres): {TOKEN[:10]}...")
+    print("🚀 Tentando conectar ao Discord...")
+    try:
+        bot.run(TOKEN)
+    except discord.errors.LoginFailure:
+        print("❌ ERRO DE AUTENTICAÇÃO! Token inválido ou expirado.")
+        exit(1)
