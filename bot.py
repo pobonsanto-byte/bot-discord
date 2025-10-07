@@ -123,7 +123,7 @@ async def ver_canal_imune(interaction: discord.Interaction):
     else:
         await interaction.response.send_message(f"⚠️ O canal configurado (ID: `{canal_id}`) não foi encontrado.", ephemeral=True)
 
-@remover_canal_imune.error
+@ver_canal_imune.error
 async def ver_canal_imune_error(interaction: discord.Interaction, error):
     if isinstance(error, app_commands.errors.MissingPermissions):
         await interaction.response.send_message("❌ Apenas administradores podem usar este comando.", ephemeral=True)
@@ -141,6 +141,11 @@ async def remover_canal_imune(interaction: discord.Interaction):
     salvar_json(ARQUIVO_CONFIG, config)
     await interaction.response.send_message(f"🗑️ Canal de imunidade removido com sucesso (ID: `{canal_removido}`).")
 
+@remover_canal_imune.error
+async def remover_canal_imune_error(interaction: discord.Interaction, error):
+    if isinstance(error, app_commands.errors.MissingPermissions):
+        await interaction.response.send_message("❌ Apenas administradores podem usar este comando.", ephemeral=True)
+
 # === COMANDOS DE IMUNIDADE ===
 @bot.tree.command(name="imune_add", description="Adiciona um personagem imune (1 por jogador).")
 @canal_imunidade()
@@ -150,10 +155,22 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
     guild_id = str(interaction.guild.id)
     if guild_id not in imunes:
         imunes[guild_id] = {}
+
+    nome_personagem_clean = nome_personagem.strip().lower()
+
+    for dados in imunes[guild_id].values():
+        if dados["personagem"].strip().lower() == nome_personagem_clean:
+            await interaction.response.send_message(
+                f"⚠️ Esse personagem já está imune para outra pessoa: **{dados['personagem']} ({dados['origem']})**.",
+                ephemeral=True
+            )
+            return
+
     user_id = str(interaction.user.id)
     if user_id in imunes[guild_id]:
         await interaction.response.send_message(f"⚠️ {interaction.user.mention}, você já possui um personagem imune!", ephemeral=True)
         return
+
     imunes[guild_id][user_id] = {
         "usuario": interaction.user.name,
         "personagem": nome_personagem.strip(),
@@ -173,12 +190,14 @@ async def imune_lista(interaction: discord.Interaction):
         return
 
     embed = discord.Embed(title="🧾 Lista de Personagens Imunes", color=0x5865F2)
+
     grupos = {}
     for dados in imunes[guild_id].values():
         origem = dados["origem"].strip()
         if origem not in grupos:
             grupos[origem] = []
         grupos[origem].append(dados)
+
     for origem, lista_personagens in grupos.items():
         texto = ""
         for dados in lista_personagens:
@@ -190,6 +209,7 @@ async def imune_lista(interaction: discord.Interaction):
             except Exception as e:
                 print(f"⚠️ Erro ao processar dados: {e}")
         embed.add_field(name=f"🎮 {origem}", value=texto, inline=False)
+
     await interaction.response.send_message(embed=embed)
 
 # === VERIFICADOR DE EXPIRAÇÃO ===
@@ -199,6 +219,7 @@ async def verificar_imunidades():
     configs = carregar_json(ARQUIVO_CONFIG)
     agora = datetime.now()
     alterado = False
+
     for guild_id, usuarios in list(imunes.items()):
         guild = bot.get_guild(int(guild_id))
         canal = None
