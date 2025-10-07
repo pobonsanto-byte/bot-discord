@@ -245,6 +245,44 @@ async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
     await bot.change_presence(activity=discord.Game(name="/set_canal_imune | /imune_add"))
 
+# === FUNÇÃO DE LEITURA DE ANEXOS ===
+async def ler_anexo_texto(attachment):
+    try:
+        conteudo = await attachment.read()
+        return conteudo.decode(errors="ignore")
+    except Exception as e:
+        print(f"❌ Erro ao ler anexo: {e}")
+        return ""
+
+# === EVENTO PARA DETECTAR ANEXOS ===
+@bot.event
+async def on_message(message):
+    if message.author.bot and canal_configurado(str(message.guild.id)):
+        config = carregar_json(ARQUIVO_CONFIG)
+        canal_id = config.get(str(message.guild.id))
+        if message.channel.id != canal_id:
+            return
+
+        imunes = carregar_json(ARQUIVO_IMUNES)
+        guild_id = str(message.guild.id)
+        if guild_id not in imunes:
+            return
+
+        if message.attachments:
+            for attachment in message.attachments:
+                texto = await ler_anexo_texto(attachment)
+                for user_id, dados in imunes[guild_id].items():
+                    nome_personagem = dados["personagem"].strip().lower()
+                    if nome_personagem in texto.lower():
+                        try:
+                            user = await bot.fetch_user(int(user_id))
+                            await message.channel.send(
+                                f"🛡️ {user.mention}, seu personagem imune **{dados['personagem']} ({dados['origem']})** apareceu!"
+                            )
+                        except Exception as e:
+                            print(f"❌ Erro ao mencionar usuário: {e}")
+    await bot.process_commands(message)
+
 # === KEEP ALIVE ===
 app = Flask('')
 @app.route('/')
