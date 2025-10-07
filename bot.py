@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import tasks
-from datetime import datetime, timedelta
+from datetime import datetime
 import json
 import os
 from flask import Flask
@@ -64,6 +64,7 @@ class ImuneBot(discord.Client):
             print(f"✅ {len(synced)} comandos sincronizados globalmente")
         except Exception as e:
             print(f"❌ Erro ao sincronizar comandos: {e}")
+
         verificar_imunidades.start()
 
 bot = ImuneBot()
@@ -93,8 +94,12 @@ def canal_imunidade():
         return False
     return app_commands.check(predicate)
 
-# === COMANDOS ADMINISTRATIVOS ===
-@bot.tree.command(name="set_canal_imune", description="Define o canal onde os comandos de imunidade funcionarão.")
+# === COMANDOS ADMINISTRATIVOS (Só admins veem e executam) ===
+@bot.tree.command(
+    name="set_canal_imune",
+    description="Define o canal onde os comandos de imunidade funcionarão.",
+    default_permission=False
+)
 @app_commands.checks.has_permissions(administrator=True)
 async def set_canal_imune(interaction: discord.Interaction):
     guild_id = str(interaction.guild.id)
@@ -103,12 +108,11 @@ async def set_canal_imune(interaction: discord.Interaction):
     salvar_json(ARQUIVO_CONFIG, config)
     await interaction.response.send_message(f"✅ Canal de imunidade configurado para: {interaction.channel.mention}")
 
-@set_canal_imune.error
-async def set_canal_imune_error(interaction: discord.Interaction, error):
-    if isinstance(error, app_commands.errors.MissingPermissions):
-        await interaction.response.send_message("❌ Apenas administradores podem usar este comando.", ephemeral=True)
-
-@bot.tree.command(name="ver_canal_imune", description="Mostra o canal configurado para imunidades.")
+@bot.tree.command(
+    name="ver_canal_imune",
+    description="Mostra o canal configurado para imunidades.",
+    default_permission=False
+)
 @app_commands.checks.has_permissions(administrator=True)
 async def ver_canal_imune(interaction: discord.Interaction):
     guild_id = str(interaction.guild.id)
@@ -123,12 +127,11 @@ async def ver_canal_imune(interaction: discord.Interaction):
     else:
         await interaction.response.send_message(f"⚠️ O canal configurado (ID: `{canal_id}`) não foi encontrado.", ephemeral=True)
 
-@ver_canal_imune.error
-async def ver_canal_imune_error(interaction: discord.Interaction, error):
-    if isinstance(error, app_commands.errors.MissingPermissions):
-        await interaction.response.send_message("❌ Apenas administradores podem usar este comando.", ephemeral=True)
-
-@bot.tree.command(name="remover_canal_imune", description="Remove o canal configurado para imunidades.")
+@bot.tree.command(
+    name="remover_canal_imune",
+    description="Remove o canal configurado para imunidades.",
+    default_permission=False
+)
 @app_commands.checks.has_permissions(administrator=True)
 async def remover_canal_imune(interaction: discord.Interaction):
     guild_id = str(interaction.guild.id)
@@ -141,10 +144,35 @@ async def remover_canal_imune(interaction: discord.Interaction):
     salvar_json(ARQUIVO_CONFIG, config)
     await interaction.response.send_message(f"🗑️ Canal de imunidade removido com sucesso (ID: `{canal_removido}`).")
 
-@remover_canal_imune.error
-async def remover_canal_imune_error(interaction: discord.Interaction, error):
-    if isinstance(error, app_commands.errors.MissingPermissions):
-        await interaction.response.send_message("❌ Apenas administradores podem usar este comando.", ephemeral=True)
+@bot.tree.command(
+    name="imune_remover",
+    description="Remove um personagem imune de um usuário (Admin somente).",
+    default_permission=False
+)
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.describe(usuario="Usuário alvo", personagem="Nome do personagem")
+async def imune_remover(interaction: discord.Interaction, usuario: discord.Member, personagem: str):
+    imunes = carregar_json(ARQUIVO_IMUNES)
+    guild_id = str(interaction.guild.id)
+
+    if guild_id not in imunes or not imunes[guild_id]:
+        await interaction.response.send_message("⚠️ Não há imunidades configuradas neste servidor.", ephemeral=True)
+        return
+
+    personagem_clean = personagem.strip().lower()
+    usuario_id = str(usuario.id)
+    encontrado = False
+
+    for user_id, dados in list(imunes[guild_id].items()):
+        if dados["personagem"].strip().lower() == personagem_clean and user_id == usuario_id:
+            del imunes[guild_id][user_id]
+            salvar_json(ARQUIVO_IMUNES, imunes)
+            encontrado = True
+            await interaction.response.send_message(f"🗑️ Imunidade de **{personagem}** removida para {usuario.mention}.")
+            break
+
+    if not encontrado:
+        await interaction.response.send_message(f"⚠️ Nenhuma imunidade encontrada para {usuario.mention} com o personagem **{personagem}**.", ephemeral=True)
 
 # === COMANDOS DE IMUNIDADE ===
 @bot.tree.command(name="imune_add", description="Adiciona um personagem imune (1 por jogador).")
@@ -200,75 +228,15 @@ async def imune_lista(interaction: discord.Interaction):
     for origem, lista_personagens in grupos.items():
         texto = ""
         for dados in lista_personagens:
-            try:
-                data_criacao = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
-                tempo_passado = datetime.now() - data_criacao
-                horas_restantes = max(0, 48 - int(tempo_passado.total_seconds() // 3600))
-                texto += f"• **{dados['personagem']}** — {dados['usuario']} (expira em {horas_restantes}h)\n"
-            except Exception as e:
-                print(f"⚠️ Erro ao processar dados: {e}")
+            texto += f"• **{dados['personagem']}** — {dados['usuario']}\n"
         embed.add_field(name=f"🎮 {origem}", value=texto, inline=False)
 
     await interaction.response.send_message(embed=embed)
 
-# === NOVO COMANDO: REMOVER IMUNIDADE ===
-@bot.tree.command(name="imune_remover", description="Remove um personagem imune de um usuário (Admin somente).")
-@app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(usuario="Usuário alvo", personagem="Nome do personagem")
-async def imune_remover(interaction: discord.Interaction, usuario: discord.Member, personagem: str):
-    imunes = carregar_json(ARQUIVO_IMUNES)
-    guild_id = str(interaction.guild.id)
-
-    if guild_id not in imunes or not imunes[guild_id]:
-        await interaction.response.send_message("⚠️ Não há imunidades configuradas neste servidor.", ephemeral=True)
-        return
-
-    personagem_clean = personagem.strip().lower()
-    usuario_id = str(usuario.id)
-    encontrado = False
-
-    for user_id, dados in list(imunes[guild_id].items()):
-        if dados["personagem"].strip().lower() == personagem_clean and user_id == usuario_id:
-            del imunes[guild_id][user_id]
-            salvar_json(ARQUIVO_IMUNES, imunes)
-            encontrado = True
-            await interaction.response.send_message(f"🗑️ Imunidade de **{personagem}** removida para {usuario.mention}.")
-            break
-
-    if not encontrado:
-        await interaction.response.send_message(f"⚠️ Nenhuma imunidade encontrada para {usuario.mention} com o personagem **{personagem}**.", ephemeral=True)
-
-@imune_remover.error
-async def imune_remover_error(interaction: discord.Interaction, error):
-    if isinstance(error, app_commands.errors.MissingPermissions):
-        await interaction.response.send_message("❌ Apenas administradores podem usar este comando.", ephemeral=True)
-
-# === VERIFICADOR DE EXPIRAÇÃO ===
+# === DESATIVAR VERIFICAÇÃO DE EXPIRAÇÃO ===
 @tasks.loop(hours=1)
 async def verificar_imunidades():
-    imunes = carregar_json(ARQUIVO_IMUNES)
-    configs = carregar_json(ARQUIVO_CONFIG)
-    agora = datetime.now()
-    alterado = False
-
-    for guild_id, usuarios in list(imunes.items()):
-        guild = bot.get_guild(int(guild_id))
-        canal = None
-        if guild and guild_id in configs:
-            canal = guild.get_channel(configs[guild_id])
-        if not canal:
-            continue
-        for user_id, dados in list(usuarios.items()):
-            try:
-                data_inicial = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
-                if agora - data_inicial >= timedelta(days=2):
-                    await canal.send(f"🕒 A imunidade de **{dados['personagem']} ({dados['origem']})** do jogador **{dados['usuario']}** expirou!")
-                    del usuarios[user_id]
-                    alterado = True
-            except Exception as e:
-                print(f"⚠️ Erro ao verificar expiração: {e}")
-    if alterado:
-        salvar_json(ARQUIVO_IMUNES, imunes)
+    pass  # Não removemos imunidades automaticamente
 
 # === EVENTOS ===
 @bot.event
