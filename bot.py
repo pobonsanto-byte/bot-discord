@@ -178,7 +178,7 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
         "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     salvar_json(ARQUIVO_IMUNES, imunes)
-    await interaction.response.send_message(f"🛡️ {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!")
+    await interaction.response.send_message(f"🔒 {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!")
 
 @bot.tree.command(name="imune_lista", description="Mostra a lista atual de personagens imunes, agrupados por origem.")
 @canal_imunidade()
@@ -190,7 +190,6 @@ async def imune_lista(interaction: discord.Interaction):
         return
 
     embed = discord.Embed(title="🧾 Lista de Personagens Imunes", color=0x5865F2)
-
     grupos = {}
     for dados in imunes[guild_id].values():
         origem = dados["origem"].strip()
@@ -211,6 +210,38 @@ async def imune_lista(interaction: discord.Interaction):
         embed.add_field(name=f"🎮 {origem}", value=texto, inline=False)
 
     await interaction.response.send_message(embed=embed)
+
+# === NOVO COMANDO: REMOVER IMUNIDADE ===
+@bot.tree.command(name="imune_remover", description="Remove um personagem imune de um usuário (Admin somente).")
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.describe(usuario="Usuário alvo", personagem="Nome do personagem")
+async def imune_remover(interaction: discord.Interaction, usuario: discord.Member, personagem: str):
+    imunes = carregar_json(ARQUIVO_IMUNES)
+    guild_id = str(interaction.guild.id)
+
+    if guild_id not in imunes or not imunes[guild_id]:
+        await interaction.response.send_message("⚠️ Não há imunidades configuradas neste servidor.", ephemeral=True)
+        return
+
+    personagem_clean = personagem.strip().lower()
+    usuario_id = str(usuario.id)
+    encontrado = False
+
+    for user_id, dados in list(imunes[guild_id].items()):
+        if dados["personagem"].strip().lower() == personagem_clean and user_id == usuario_id:
+            del imunes[guild_id][user_id]
+            salvar_json(ARQUIVO_IMUNES, imunes)
+            encontrado = True
+            await interaction.response.send_message(f"🗑️ Imunidade de **{personagem}** removida para {usuario.mention}.")
+            break
+
+    if not encontrado:
+        await interaction.response.send_message(f"⚠️ Nenhuma imunidade encontrada para {usuario.mention} com o personagem **{personagem}**.", ephemeral=True)
+
+@imune_remover.error
+async def imune_remover_error(interaction: discord.Interaction, error):
+    if isinstance(error, app_commands.errors.MissingPermissions):
+        await interaction.response.send_message("❌ Apenas administradores podem usar este comando.", ephemeral=True)
 
 # === VERIFICADOR DE EXPIRAÇÃO ===
 @tasks.loop(hours=1)
