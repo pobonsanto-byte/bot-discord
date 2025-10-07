@@ -55,7 +55,9 @@ def salvar_json(nome_arquivo, dados):
 # === CLASSE DO BOT ===
 class ImuneBot(discord.Client):
     def __init__(self):
-        super().__init__(intents=discord.Intents.default())
+        intents = discord.Intents.default()
+        intents.message_content = True  # Necessário para ler mensagens
+        super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
@@ -205,7 +207,8 @@ async def imune_lista(interaction: discord.Interaction):
                 data_criacao = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
                 tempo_passado = datetime.now() - data_criacao
                 horas_restantes = max(0, 48 - int(tempo_passado.total_seconds() // 3600))
-                texto += f"• **{dados['personagem']}** — {dados['usuario']} (expira em {horas_restantes}h)\n"
+                status_casado = "💍 " if dados.get("casado") else ""
+                texto += f"• {status_casado}**{dados['personagem']}** — {dados['usuario']} (expira em {horas_restantes}h)\n"
             except Exception as e:
                 print(f"⚠️ Erro ao processar dados: {e}")
         embed.add_field(name=f"🎮 {origem}", value=texto, inline=False)
@@ -238,6 +241,29 @@ async def verificar_imunidades():
                 print(f"⚠️ Erro ao verificar expiração: {e}")
     if alterado:
         salvar_json(ARQUIVO_IMUNES, imunes)
+
+# === MONITORAR MENSAGENS DE CASAMENTO ===
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+
+    if "agora são casados!" in message.content.lower():
+        imunes = carregar_json(ARQUIVO_IMUNES)
+        guild_id = str(message.guild.id)
+
+        if guild_id not in imunes:
+            return
+
+        conteudo = message.content.lower().replace("*", "").strip()
+
+        for user_id, dados in imunes[guild_id].items():
+            nome_personagem = dados["personagem"].lower()
+            if nome_personagem in conteudo:
+                dados["casado"] = True
+                salvar_json(ARQUIVO_IMUNES, imunes)
+                await message.channel.send(f"💍 **{dados['personagem']}** de {dados['usuario']} foi marcado como casado!")
+                break
 
 # === EVENTOS ===
 @bot.event
