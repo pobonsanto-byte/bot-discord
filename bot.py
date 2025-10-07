@@ -55,9 +55,7 @@ def salvar_json(nome_arquivo, dados):
 # === CLASSE DO BOT ===
 class ImuneBot(discord.Client):
     def __init__(self):
-        intents = discord.Intents.default()
-        intents.message_content = True  # 🔥 Necessário para ler mensagens do Mudae
-        super().__init__(intents=intents)
+        super().__init__(intents=discord.Intents.default())
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
@@ -177,8 +175,7 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
         "usuario": interaction.user.name,
         "personagem": nome_personagem.strip(),
         "origem": jogo_anime.strip(),
-        "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "casado": False  # 🔹 Adicionado para monitorar casamentos
+        "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     salvar_json(ARQUIVO_IMUNES, imunes)
     await interaction.response.send_message(f"🔒 {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!")
@@ -203,8 +200,7 @@ async def imune_lista(interaction: discord.Interaction):
     for origem, lista_personagens in grupos.items():
         texto = ""
         for dados in lista_personagens:
-            status = "❌" if dados.get("casado") else "✅"
-            texto += f"{status} **{dados['personagem']}** — {dados['usuario']}\n"
+            texto += f"• **{dados['personagem']}** — {dados['usuario']}\n"
         embed.add_field(name=f"🎮 {origem}", value=texto, inline=False)
 
     await interaction.response.send_message(embed=embed)
@@ -241,22 +237,6 @@ async def imune_remover_error(interaction: discord.Interaction, error):
     if isinstance(error, app_commands.errors.MissingPermissions):
         await interaction.response.send_message("❌ Apenas administradores podem usar este comando.", ephemeral=True)
 
-# === MONITORADOR DE MENSAGENS DO MUDAE ===
-@bot.event
-async def on_message(message):
-    if message.author.bot and "agora são casados" in message.content.lower():
-        imunes = carregar_json(ARQUIVO_IMUNES)
-        guild_id = str(message.guild.id)
-        if guild_id not in imunes:
-            return
-        for user_id, dados in imunes[guild_id].items():
-            nome_personagem = dados["personagem"].strip().lower()
-            if nome_personagem in message.content.lower() and not dados.get("casado"):
-                imunes[guild_id][user_id]["casado"] = True
-                salvar_json(ARQUIVO_IMUNES, imunes)
-                print(f"💍 {dados['personagem']} foi marcado como casado!")
-                break
-
 # === VERIFICADOR DE IMUNIDADES (DESATIVADO) ===
 @tasks.loop(hours=1)
 async def verificar_imunidades():
@@ -266,7 +246,7 @@ async def verificar_imunidades():
 @bot.event
 async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
-    await bot.change_presence(activity=None)
+    await bot.change_presence(activity=None)  # 🔕 Remove qualquer status de "Jogando"
 
 # === KEEP ALIVE ===
 app = Flask('')
