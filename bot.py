@@ -246,7 +246,7 @@ async def verificar_imunidades():
 @bot.event
 async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
-    await bot.change_presence(activity=discord.Game(name="/set_canal_imune | /imune_add"))
+    await bot.change_presence(activity=None)  # 🔕 Remove qualquer status de "Jogando"
 
 # === KEEP ALIVE ===
 app = Flask('')
