@@ -93,50 +93,6 @@ def canal_imunidade():
         return False
     return app_commands.check(predicate)
 
-# === MONITORAR REAÇÕES ===
-@bot.event
-async def on_reaction_add(reaction: discord.Reaction, user: discord.User):
-    # Checando se a reação foi dada em uma mensagem de Mudae
-    if reaction.message.author.id == 620517239797462027:  # ID da Mudae
-        # Pegando o nome do personagem da mensagem (você pode extrair o nome da imagem de outra forma, se necessário)
-        personagem_reagido = reaction.message.embeds[0].title if reaction.message.embeds else None
-        if not personagem_reagido:
-            return
-
-        # Verificando se o personagem está na lista de imunidades
-        imunes = carregar_json(ARQUIVO_IMUNES)
-        guild_id = str(reaction.message.guild.id)
-        if guild_id not in imunes:
-            return
-
-        for dados in imunes[guild_id].values():
-            if dados["personagem"].lower() in personagem_reagido.lower():
-                # Notificar que o personagem é imune
-                await reaction.message.channel.send(f"🛡️ {user.mention} reagiu à mensagem do personagem **{dados['personagem']}** que está imune!")
-                break
-
-# === MONITORAR REMOÇÃO DE REAÇÕES ===
-@bot.event
-async def on_reaction_remove(reaction: discord.Reaction, user: discord.User):
-    # Checando se a reação foi removida de uma mensagem de Mudae
-    if reaction.message.author.id == 620517239797462027:  # ID da Mudae
-        # Pegando o nome do personagem da mensagem
-        personagem_reagido = reaction.message.embeds[0].title if reaction.message.embeds else None
-        if not personagem_reagido:
-            return
-
-        # Verificando se o personagem está na lista de imunidades
-        imunes = carregar_json(ARQUIVO_IMUNES)
-        guild_id = str(reaction.message.guild.id)
-        if guild_id not in imunes:
-            return
-
-        for dados in imunes[guild_id].values():
-            if dados["personagem"].lower() in personagem_reagido.lower():
-                # Notificar que o personagem é imune
-                await reaction.message.channel.send(f"🛡️ {user.mention} removeu a reação do personagem **{dados['personagem']}** que está imune!")
-                break
-
 # === COMANDOS ADMINISTRATIVOS ===
 @bot.tree.command(name="set_canal_imune", description="Define o canal onde os comandos de imunidade funcionarão.")
 @app_commands.checks.has_permissions(administrator=True)
@@ -224,6 +180,33 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
     salvar_json(ARQUIVO_IMUNES, imunes)
     await interaction.response.send_message(f"🛡️ {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!")
 
+# === COMANDO DE LISTA RESTAURADO ===
+@bot.tree.command(name="imune_lista", description="Mostra a lista atual de personagens imunes.")
+@canal_imunidade()
+async def imune_lista(interaction: discord.Interaction):
+    imunes = carregar_json(ARQUIVO_IMUNES)
+    guild_id = str(interaction.guild.id)
+    if guild_id not in imunes or not imunes[guild_id]:
+        await interaction.response.send_message("📭 Nenhum personagem imune no momento.", ephemeral=True)
+        return
+
+    embed = discord.Embed(title="🧾 Lista de Personagens Imunes", color=0x5865F2)
+
+    for dados in imunes[guild_id].values():
+        try:
+            data_criacao = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
+            tempo_passado = datetime.now() - data_criacao
+            horas_restantes = max(0, 48 - int(tempo_passado.total_seconds() // 3600))
+            embed.add_field(
+                name=f"{dados['personagem']} ({dados['origem']})",
+                value=f"Dono: **{dados['usuario']}**\n⏳ Expira em: {horas_restantes}h",
+                inline=False
+            )
+        except Exception as e:
+            print(f"⚠️ Erro ao processar dados: {e}")
+
+    await interaction.response.send_message(embed=embed)
+
 # === VERIFICADOR DE EXPIRAÇÃO ===
 @tasks.loop(hours=1)
 async def verificar_imunidades():
@@ -231,7 +214,6 @@ async def verificar_imunidades():
     configs = carregar_json(ARQUIVO_CONFIG)
     agora = datetime.now()
     alterado = False
-
     for guild_id, usuarios in list(imunes.items()):
         guild = bot.get_guild(int(guild_id))
         canal = None
