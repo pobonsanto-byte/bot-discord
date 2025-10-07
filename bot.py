@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import tasks
-from datetime import datetime, timedelta
+from datetime import datetime
 import json
 import os
 from flask import Flask
@@ -200,18 +200,12 @@ async def imune_lista(interaction: discord.Interaction):
     for origem, lista_personagens in grupos.items():
         texto = ""
         for dados in lista_personagens:
-            try:
-                data_criacao = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
-                tempo_passado = datetime.now() - data_criacao
-                horas_restantes = max(0, 48 - int(tempo_passado.total_seconds() // 3600))
-                texto += f"• **{dados['personagem']}** — {dados['usuario']} (expira em {horas_restantes}h)\n"
-            except Exception as e:
-                print(f"⚠️ Erro ao processar dados: {e}")
+            texto += f"• **{dados['personagem']}** — {dados['usuario']}\n"
         embed.add_field(name=f"🎮 {origem}", value=texto, inline=False)
 
     await interaction.response.send_message(embed=embed)
 
-# === NOVO COMANDO: REMOVER IMUNIDADE ===
+# === COMANDO PARA REMOVER IMUNIDADE ===
 @bot.tree.command(name="imune_remover", description="Remove um personagem imune de um usuário (Admin somente).")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(usuario="Usuário alvo", personagem="Nome do personagem")
@@ -243,32 +237,10 @@ async def imune_remover_error(interaction: discord.Interaction, error):
     if isinstance(error, app_commands.errors.MissingPermissions):
         await interaction.response.send_message("❌ Apenas administradores podem usar este comando.", ephemeral=True)
 
-# === VERIFICADOR DE EXPIRAÇÃO ===
+# === VERIFICADOR DE IMUNIDADES (DESATIVADO) ===
 @tasks.loop(hours=1)
 async def verificar_imunidades():
-    imunes = carregar_json(ARQUIVO_IMUNES)
-    configs = carregar_json(ARQUIVO_CONFIG)
-    agora = datetime.now()
-    alterado = False
-
-    for guild_id, usuarios in list(imunes.items()):
-        guild = bot.get_guild(int(guild_id))
-        canal = None
-        if guild and guild_id in configs:
-            canal = guild.get_channel(configs[guild_id])
-        if not canal:
-            continue
-        for user_id, dados in list(usuarios.items()):
-            try:
-                data_inicial = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
-                if agora - data_inicial >= timedelta(days=2):
-                    await canal.send(f"🕒 A imunidade de **{dados['personagem']} ({dados['origem']})** do jogador **{dados['usuario']}** expirou!")
-                    del usuarios[user_id]
-                    alterado = True
-            except Exception as e:
-                print(f"⚠️ Erro ao verificar expiração: {e}")
-    if alterado:
-        salvar_json(ARQUIVO_IMUNES, imunes)
+    print("⏳ Verificação de imunidades executada (sem expiração).")
 
 # === EVENTOS ===
 @bot.event
