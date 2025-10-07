@@ -180,8 +180,7 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
     salvar_json(ARQUIVO_IMUNES, imunes)
     await interaction.response.send_message(f"🛡️ {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!")
 
-# === COMANDO DE LISTA RESTAURADO ===
-@bot.tree.command(name="imune_lista", description="Mostra a lista atual de personagens imunes.")
+@bot.tree.command(name="imune_lista", description="Mostra a lista atual de personagens imunes, agrupados por origem.")
 @canal_imunidade()
 async def imune_lista(interaction: discord.Interaction):
     imunes = carregar_json(ARQUIVO_IMUNES)
@@ -192,18 +191,24 @@ async def imune_lista(interaction: discord.Interaction):
 
     embed = discord.Embed(title="🧾 Lista de Personagens Imunes", color=0x5865F2)
 
+    grupos = {}
     for dados in imunes[guild_id].values():
-        try:
-            data_criacao = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
-            tempo_passado = datetime.now() - data_criacao
-            horas_restantes = max(0, 48 - int(tempo_passado.total_seconds() // 3600))
-            embed.add_field(
-                name=f"{dados['personagem']} ({dados['origem']})",
-                value=f"Dono: **{dados['usuario']}**\n⏳ Expira em: {horas_restantes}h",
-                inline=False
-            )
-        except Exception as e:
-            print(f"⚠️ Erro ao processar dados: {e}")
+        origem = dados["origem"].strip()
+        if origem not in grupos:
+            grupos[origem] = []
+        grupos[origem].append(dados)
+
+    for origem, lista_personagens in grupos.items():
+        texto = ""
+        for dados in lista_personagens:
+            try:
+                data_criacao = datetime.strptime(dados["data"], "%Y-%m-%d %H:%M:%S")
+                tempo_passado = datetime.now() - data_criacao
+                horas_restantes = max(0, 48 - int(tempo_passado.total_seconds() // 3600))
+                texto += f"• **{dados['personagem']}** — {dados['usuario']} (expira em {horas_restantes}h)\n"
+            except Exception as e:
+                print(f"⚠️ Erro ao processar dados: {e}")
+        embed.add_field(name=f"🎮 {origem}", value=texto, inline=False)
 
     await interaction.response.send_message(embed=embed)
 
@@ -214,6 +219,7 @@ async def verificar_imunidades():
     configs = carregar_json(ARQUIVO_CONFIG)
     agora = datetime.now()
     alterado = False
+
     for guild_id, usuarios in list(imunes.items()):
         guild = bot.get_guild(int(guild_id))
         canal = None
