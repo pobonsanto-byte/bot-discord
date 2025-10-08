@@ -159,6 +159,7 @@ async def set_canal_imune(interaction: discord.Interaction):
     salvar_json(ARQUIVO_CONFIG, config)
     await interaction.response.send_message(f"✅ Canal de imunidade configurado para: {interaction.channel.mention}")
 
+
 @bot.tree.command(name="ver_canal_imune", description="Mostra o canal configurado para imunidades.")
 @app_commands.checks.has_permissions(administrator=True)
 async def ver_canal_imune(interaction: discord.Interaction):
@@ -173,6 +174,7 @@ async def ver_canal_imune(interaction: discord.Interaction):
         await interaction.response.send_message(f"📍 Canal configurado: {canal.mention}")
     else:
         await interaction.response.send_message(f"⚠️ O canal configurado (ID: `{canal_id}`) não foi encontrado.", ephemeral=True)
+
 
 @bot.tree.command(name="remover_canal_imune", description="Remove o canal configurado para imunidades.")
 @app_commands.checks.has_permissions(administrator=True)
@@ -248,7 +250,6 @@ async def imune_lista(interaction: discord.Interaction):
 
     await interaction.response.send_message(embed=embed)
 
-# === COMANDO PARA REMOVER IMUNIDADE ===
 @bot.tree.command(name="imune_remover", description="Remove um personagem imune de um usuário (Admin somente).")
 @app_commands.checks.has_permissions(administrator=True)
 @app_commands.describe(usuario="Usuário alvo", personagem="Nome do personagem")
@@ -275,34 +276,7 @@ async def imune_remover(interaction: discord.Interaction, usuario: discord.Membe
     if not encontrado:
         await interaction.response.send_message(f"⚠️ Nenhuma imunidade encontrada para {usuario.mention} com o personagem **{personagem}**.", ephemeral=True)
 
-@bot.tree.command(name="ver_canal_imune", description="Mostra o canal configurado para imunidades.")
-@app_commands.checks.has_permissions(administrator=True)
-async def ver_canal_imune(interaction: discord.Interaction):
-    guild_id = str(interaction.guild.id)
-    config = carregar_json(ARQUIVO_CONFIG)
-    canal_id = config.get(guild_id)
-    if not canal_id:
-        await interaction.response.send_message("⚙️ Nenhum canal configurado ainda.", ephemeral=True)
-        return
-    canal = interaction.guild.get_channel(canal_id)
-    if canal:
-        await interaction.response.send_message(f"📍 Canal configurado: {canal.mention}")
-    else:
-        await interaction.response.send_message(f"⚠️ O canal configurado (ID: `{canal_id}`) não foi encontrado.", ephemeral=True)
-
-@bot.tree.command(name="remover_canal_imune", description="Remove o canal configurado para imunidades.")
-@app_commands.checks.has_permissions(administrator=True)
-async def remover_canal_imune(interaction: discord.Interaction):
-    guild_id = str(interaction.guild.id)
-    config = carregar_json(ARQUIVO_CONFIG)
-    if guild_id not in config:
-        await interaction.response.send_message("⚠️ Nenhum canal de imunidade está configurado neste servidor.", ephemeral=True)
-        return
-    canal_removido = config[guild_id]
-    del config[guild_id]
-    salvar_json(ARQUIVO_CONFIG, config)
-    await interaction.response.send_message(f"🗑️ Canal de imunidade removido com sucesso (ID: `{canal_removido}`).")
-
+# === EVENTO ON READY ===
 @bot.event
 async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
