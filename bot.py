@@ -9,6 +9,7 @@ from threading import Thread
 import requests
 import time
 import base64
+from discord.ui import View, Button
 
 # === CONFIGURAÇÃO ===
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -92,6 +93,65 @@ def canal_imunidade():
         )
         return False
     return app_commands.check(predicate)
+
+# === PAGINAÇÃO DA LISTA DE IMUNES ===
+class ListaImunesView(View):
+    def __init__(self, grupos, timeout=120):
+        super().__init__(timeout=timeout)
+        self.grupos = list(grupos.items())
+        self.page = 0
+        self.total_pages = (len(self.grupos) - 1) // 3 + 1
+        self.message = None
+
+        if self.total_pages > 1:
+            self.add_item(Button(label="⏮️", style=discord.ButtonStyle.gray, custom_id="primeira"))
+            self.add_item(Button(label="⬅️", style=discord.ButtonStyle.gray, custom_id="anterior"))
+            self.add_item(Button(label="➡️", style=discord.ButtonStyle.gray, custom_id="proximo"))
+            self.add_item(Button(label="⏭️", style=discord.ButtonStyle.gray, custom_id="ultima"))
+        else:
+            self.clear_items()
+
+    def gerar_embed(self):
+        embed = discord.Embed(title="🧾 Lista de Personagens Imunes", color=0x5865F2)
+        start = self.page * 3
+        end = start + 3
+        for origem, lista_personagens in self.grupos[start:end]:
+            texto = ""
+            for dados in lista_personagens:
+                texto += f"• **{dados['personagem']}** — {dados['usuario']}\n"
+            embed.add_field(name=f"🎮 {origem}", value=texto, inline=False)
+        embed.set_footer(text=f"Página {self.page + 1}/{self.total_pages}")
+        return embed
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        try:
+            await self.message.edit(view=self)
+        except:
+            pass
+
+    @discord.ui.button(label="⏮️", style=discord.ButtonStyle.gray)
+    async def primeira(self, interaction: discord.Interaction, button: Button):
+        self.page = 0
+        await interaction.response.edit_message(embed=self.gerar_embed(), view=self)
+
+    @discord.ui.button(label="⬅️", style=discord.ButtonStyle.gray)
+    async def anterior(self, interaction: discord.Interaction, button: Button):
+        if self.page > 0:
+            self.page -= 1
+            await interaction.response.edit_message(embed=self.gerar_embed(), view=self)
+
+    @discord.ui.button(label="➡️", style=discord.ButtonStyle.gray)
+    async def proximo(self, interaction: discord.Interaction, button: Button):
+        if self.page < self.total_pages - 1:
+            self.page += 1
+            await interaction.response.edit_message(embed=self.gerar_embed(), view=self)
+
+    @discord.ui.button(label="⏭️", style=discord.ButtonStyle.gray)
+    async def ultima(self, interaction: discord.Interaction, button: Button):
+        self.page = self.total_pages - 1
+        await interaction.response.edit_message(embed=self.gerar_embed(), view=self)
 
 # === COMANDOS ADMINISTRATIVOS ===
 @bot.tree.command(name="set_canal_imune", description="Define o canal onde os comandos de imunidade funcionarão.")
@@ -180,6 +240,7 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
     salvar_json(ARQUIVO_IMUNES, imunes)
     await interaction.response.send_message(f"🔒 {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!")
 
+# === COMANDO IMUNE LISTA COM PAGINAÇÃO ===
 @bot.tree.command(name="imune_lista", description="Mostra a lista atual de personagens imunes, agrupados por origem.")
 @canal_imunidade()
 async def imune_lista(interaction: discord.Interaction):
@@ -189,7 +250,6 @@ async def imune_lista(interaction: discord.Interaction):
         await interaction.response.send_message("📭 Nenhum personagem imune no momento.", ephemeral=True)
         return
 
-    embed = discord.Embed(title="🧾 Lista de Personagens Imunes", color=0x5865F2)
     grupos = {}
     for dados in imunes[guild_id].values():
         origem = dados["origem"].strip()
@@ -197,13 +257,10 @@ async def imune_lista(interaction: discord.Interaction):
             grupos[origem] = []
         grupos[origem].append(dados)
 
-    for origem, lista_personagens in grupos.items():
-        texto = ""
-        for dados in lista_personagens:
-            texto += f"• **{dados['personagem']}** — {dados['usuario']}\n"
-        embed.add_field(name=f"🎮 {origem}", value=texto, inline=False)
-
-    await interaction.response.send_message(embed=embed)
+    view = ListaImunesView(grupos, timeout=120)
+    await interaction.response.send_message(embed=view.gerar_embed(), view=view if view.total_pages > 1 else None)
+    sent_message = await interaction.original_response()
+    view.message = sent_message
 
 # === COMANDO PARA REMOVER IMUNIDADE ===
 @bot.tree.command(name="imune_remover", description="Remove um personagem imune de um usuário (Admin somente).")
@@ -246,7 +303,7 @@ async def verificar_imunidades():
 @bot.event
 async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
-    await bot.change_presence(activity=None)  # 🔕 Remove qualquer status de "Jogando"
+    await bot.change_presence(activity=None)
 
 # === KEEP ALIVE ===
 app = Flask('')
