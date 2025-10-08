@@ -10,9 +10,6 @@ import requests
 import time
 import base64
 
-# === NOVO IMPORT PARA MONITORAMENTO ===
-from monitoramento import monitorar_casamentos
-
 # === CONFIGURAÇÃO ===
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 ARQUIVO_IMUNES = "imunidades.json"
@@ -22,13 +19,6 @@ ARQUIVO_CONFIG = "config.json"
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 REPO = os.getenv("GITHUB_REPO")
 BRANCH = os.getenv("GITHUB_BRANCH", "main")
-
-# === INFO DO REPOSITÓRIO (PARA MONITORAMENTO) ===
-repo_info = {
-    "GITHUB_TOKEN": GITHUB_TOKEN,
-    "REPO": REPO,
-    "BRANCH": BRANCH
-}
 
 # === FUNÇÕES DE ARMAZENAMENTO ONLINE ===
 def carregar_json(nome_arquivo):
@@ -257,12 +247,6 @@ async def verificar_imunidades():
 async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
     await bot.change_presence(activity=None)  # 🔕 Remove qualquer status de "Jogando"
-
-# === NOVO EVENTO PARA MONITORAR CASAMENTOS ===
-@bot.event
-async def on_message(message):
-    await monitorar_casamentos(bot, message, repo_info, ARQUIVO_IMUNES)
-    await bot.process_commands(message)
 
 # === KEEP ALIVE ===
 app = Flask('')
