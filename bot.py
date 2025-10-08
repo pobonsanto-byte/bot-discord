@@ -104,8 +104,13 @@ class ListaImunesView(View):
         self.message = None
 
         if self.total_pages > 1:
-            self.add_item(Button(label="⬅️", style=discord.ButtonStyle.gray, custom_id="anterior"))
-            self.add_item(Button(label="➡️", style=discord.ButtonStyle.gray, custom_id="proximo"))
+            botao_anterior = Button(label="⬅️", style=discord.ButtonStyle.gray)
+            botao_anterior.callback = self.anterior_callback
+            self.add_item(botao_anterior)
+
+            botao_proximo = Button(label="➡️", style=discord.ButtonStyle.gray)
+            botao_proximo.callback = self.proximo_callback
+            self.add_item(botao_proximo)
 
     def gerar_embed(self):
         embed = discord.Embed(title="🧾 Lista de Personagens Imunes", color=0x5865F2)
@@ -119,6 +124,16 @@ class ListaImunesView(View):
         embed.set_footer(text=f"Página {self.page + 1}/{self.total_pages}")
         return embed
 
+    async def anterior_callback(self, interaction: discord.Interaction):
+        if self.page > 0:
+            self.page -= 1
+            await interaction.response.edit_message(embed=self.gerar_embed(), view=self)
+
+    async def proximo_callback(self, interaction: discord.Interaction):
+        if self.page < self.total_pages - 1:
+            self.page += 1
+            await interaction.response.edit_message(embed=self.gerar_embed(), view=self)
+
     async def on_timeout(self):
         for child in self.children:
             child.disabled = True
@@ -126,18 +141,6 @@ class ListaImunesView(View):
             await self.message.edit(view=self)
         except:
             pass
-
-    @discord.ui.button(label="⬅️", style=discord.ButtonStyle.gray)
-    async def anterior(self, interaction: discord.Interaction, button: Button):
-        if self.page > 0:
-            self.page -= 1
-            await interaction.response.edit_message(embed=self.gerar_embed(), view=self)
-
-    @discord.ui.button(label="➡️", style=discord.ButtonStyle.gray)
-    async def proximo(self, interaction: discord.Interaction, button: Button):
-        if self.page < self.total_pages - 1:
-            self.page += 1
-            await interaction.response.edit_message(embed=self.gerar_embed(), view=self)
 
 # === COMANDOS ADMINISTRATIVOS ===
 @bot.tree.command(name="set_canal_imune", description="Define o canal onde os comandos de imunidade funcionarão.")
