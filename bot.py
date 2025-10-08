@@ -1,7 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import tasks
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import os
 from flask import Flask
@@ -16,6 +16,7 @@ from discord.ui import View, Button
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 ARQUIVO_IMUNES = "imunidades.json"
 ARQUIVO_CONFIG = "config.json"
+ARQUIVO_COOLDOWN = "cooldowns.json"  # ⏳ Arquivo novo
 
 # === CONFIG GITHUB ===
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
@@ -54,13 +55,34 @@ def salvar_json(nome_arquivo, dados):
     else:
         print(f"❌ Erro ao salvar {nome_arquivo}: {r.status_code} - {r.text}")
 
+# === FUNÇÕES DE COOLDOWN ===
+def esta_em_cooldown(user_id):
+    cooldowns = carregar_json(ARQUIVO_COOLDOWN)
+    agora = datetime.now()
+    expira_em_str = cooldowns.get(str(user_id))
+    if not expira_em_str:
+        return False
+    expira_em = datetime.strptime(expira_em_str, "%Y-%m-%d %H:%M:%S")
+    if agora >= expira_em:
+        # Cooldown expirou — remover
+        del cooldowns[str(user_id)]
+        salvar_json(ARQUIVO_COOLDOWN, cooldowns)
+        return False
+    return True
+
+def definir_cooldown(user_id, dias=3):
+    cooldowns = carregar_json(ARQUIVO_COOLDOWN)
+    expira_em = datetime.now() + timedelta(days=dias)
+    cooldowns[str(user_id)] = expira_em.strftime("%Y-%m-%d %H:%M:%S")
+    salvar_json(ARQUIVO_COOLDOWN, cooldowns)
+
 # === CLASSE DO BOT ===
 class ImuneBot(discord.Client):
     def __init__(self):
         intents = discord.Intents.default()
         intents.messages = True
         intents.guilds = True
-        intents.message_content = True  # Necessário para ler o conteúdo das mensagens
+        intents.message_content = True
         intents.members = True
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
@@ -100,7 +122,7 @@ def canal_imunidade():
         return False
     return app_commands.check(predicate)
 
-# === PAGINAÇÃO DA LISTA DE IMUNES ===
+# === PAGINAÇÃO ===
 class ListaImunesView(View):
     def __init__(self, grupos, timeout=120):
         super().__init__(timeout=timeout)
@@ -108,47 +130,45 @@ class ListaImunesView(View):
         self.page = 0
         self.total_pages = (len(self.grupos) - 1) // 3 + 1
         self.message = None
-
         if self.total_pages > 1:
-            botao_anterior = Button(label="⬅️", style=discord.ButtonStyle.gray)
-            botao_anterior.callback = self.anterior_callback
-            self.add_item(botao_anterior)
-
-            botao_proximo = Button(label="➡️", style=discord.ButtonStyle.gray)
-            botao_proximo.callback = self.proximo_callback
-            self.add_item(botao_proximo)
+            btn_ant = Button(label="⬅️", style=discord.ButtonStyle.gray)
+            btn_ant.callback = self.anterior_callback
+            self.add_item(btn_ant)
+            btn_prox = Button(label="➡️", style=discord.ButtonStyle.gray)
+            btn_prox.callback = self.proximo_callback
+            self.add_item(btn_prox)
 
     def gerar_embed(self):
         embed = discord.Embed(title="🧾 Lista de Personagens Imunes", color=0x5865F2)
         start = self.page * 3
         end = start + 3
-        for origem, lista_personagens in self.grupos[start:end]:
+        for origem, lista in self.grupos[start:end]:
             texto = ""
-            for dados in lista_personagens:
+            for dados in lista:
                 texto += f"• **{dados['personagem']}** — {dados['usuario']}\n"
             embed.add_field(name=f"🎮 {origem}", value=texto, inline=False)
         embed.set_footer(text=f"Página {self.page + 1}/{self.total_pages}")
         return embed
 
-    async def anterior_callback(self, interaction: discord.Interaction):
+    async def anterior_callback(self, interaction):
         if self.page > 0:
             self.page -= 1
             await interaction.response.edit_message(embed=self.gerar_embed(), view=self)
 
-    async def proximo_callback(self, interaction: discord.Interaction):
+    async def proximo_callback(self, interaction):
         if self.page < self.total_pages - 1:
             self.page += 1
             await interaction.response.edit_message(embed=self.gerar_embed(), view=self)
 
     async def on_timeout(self):
-        for child in self.children:
-            child.disabled = True
+        for c in self.children:
+            c.disabled = True
         try:
             await self.message.edit(view=self)
         except:
             pass
 
-# === COMANDOS ADMINISTRATIVOS ===
+# === COMANDOS ADMIN ===
 @bot.tree.command(name="set_canal_imune", description="Define o canal onde os comandos de imunidade funcionarão.")
 @app_commands.checks.has_permissions(administrator=True)
 async def set_canal_imune(interaction: discord.Interaction):
@@ -156,37 +176,9 @@ async def set_canal_imune(interaction: discord.Interaction):
     config = carregar_json(ARQUIVO_CONFIG)
     config[guild_id] = interaction.channel.id
     salvar_json(ARQUIVO_CONFIG, config)
-    await interaction.response.send_message(f"✅ Canal de imunidade configurado para: {interaction.channel.mention}")
+    await interaction.response.send_message(f"✅ Canal de imunidade configurado: {interaction.channel.mention}")
 
-@bot.tree.command(name="ver_canal_imune", description="Mostra o canal configurado para imunidades.")
-@app_commands.checks.has_permissions(administrator=True)
-async def ver_canal_imune(interaction: discord.Interaction):
-    guild_id = str(interaction.guild.id)
-    config = carregar_json(ARQUIVO_CONFIG)
-    canal_id = config.get(guild_id)
-    if not canal_id:
-        await interaction.response.send_message("⚙️ Nenhum canal configurado ainda.", ephemeral=True)
-        return
-    canal = interaction.guild.get_channel(canal_id)
-    if canal:
-        await interaction.response.send_message(f"📍 Canal configurado: {canal.mention}")
-    else:
-        await interaction.response.send_message(f"⚠️ O canal configurado (ID: `{canal_id}`) não foi encontrado.", ephemeral=True)
-
-@bot.tree.command(name="remover_canal_imune", description="Remove o canal configurado para imunidades.")
-@app_commands.checks.has_permissions(administrator=True)
-async def remover_canal_imune(interaction: discord.Interaction):
-    guild_id = str(interaction.guild.id)
-    config = carregar_json(ARQUIVO_CONFIG)
-    if guild_id not in config:
-        await interaction.response.send_message("⚠️ Nenhum canal de imunidade está configurado neste servidor.", ephemeral=True)
-        return
-    canal_removido = config[guild_id]
-    del config[guild_id]
-    salvar_json(ARQUIVO_CONFIG, config)
-    await interaction.response.send_message(f"🗑️ Canal de imunidade removido com sucesso (ID: `{canal_removido}`).")
-
-# === COMANDO DE ADICIONAR IMUNE ===
+# === ADICIONAR IMUNE ===
 @bot.tree.command(name="imune_add", description="Adiciona um personagem imune (1 por jogador).")
 @canal_imunidade()
 @app_commands.describe(nome_personagem="Nome do personagem", jogo_anime="Nome do jogo/anime")
@@ -196,21 +188,35 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
     if guild_id not in imunes:
         imunes[guild_id] = {}
 
-    nome_personagem_clean = nome_personagem.strip().lower()
+    user_id = str(interaction.user.id)
 
+    # 🚫 Verificar cooldown
+    if esta_em_cooldown(user_id):
+        await interaction.response.send_message(
+            f"⏳ {interaction.user.mention}, você está em cooldown! Aguarde 3 dias para adicionar outro personagem imune.",
+            ephemeral=True
+        )
+        return
+
+    # 🚫 Verificar se já possui imune
+    if user_id in imunes[guild_id]:
+        await interaction.response.send_message(
+            f"⚠️ {interaction.user.mention}, você já possui um personagem imune!",
+            ephemeral=True
+        )
+        return
+
+    # 🚫 Verificar se personagem já está imune
+    nome_personagem_clean = nome_personagem.strip().lower()
     for dados in imunes[guild_id].values():
         if dados["personagem"].strip().lower() == nome_personagem_clean:
             await interaction.response.send_message(
-                f"⚠️ Esse personagem já está imune para outra pessoa: **{dados['personagem']} ({dados['origem']})**.",
+                f"⚠️ Esse personagem já está imune: **{dados['personagem']} ({dados['origem']})**.",
                 ephemeral=True
             )
             return
 
-    user_id = str(interaction.user.id)
-    if user_id in imunes[guild_id]:
-        await interaction.response.send_message(f"⚠️ {interaction.user.mention}, você já possui um personagem imune!", ephemeral=True)
-        return
-
+    # ✅ Adicionar imunidade
     imunes[guild_id][user_id] = {
         "usuario": interaction.user.name,
         "personagem": nome_personagem.strip(),
@@ -220,8 +226,8 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
     salvar_json(ARQUIVO_IMUNES, imunes)
     await interaction.response.send_message(f"🔒 {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!")
 
-# === COMANDO LISTA IMUNE COM PAGINAÇÃO ===
-@bot.tree.command(name="imune_lista", description="Mostra a lista atual de personagens imunes, agrupados por origem.")
+# === LISTA IMUNES ===
+@bot.tree.command(name="imune_lista", description="Mostra a lista de personagens imunes.")
 @canal_imunidade()
 async def imune_lista(interaction: discord.Interaction):
     imunes = carregar_json(ARQUIVO_IMUNES)
@@ -229,46 +235,60 @@ async def imune_lista(interaction: discord.Interaction):
     if guild_id not in imunes or not imunes[guild_id]:
         await interaction.response.send_message("📭 Nenhum personagem imune no momento.", ephemeral=True)
         return
-
     grupos = {}
     for dados in imunes[guild_id].values():
-        origem = dados["origem"].strip()
-        if origem not in grupos:
-            grupos[origem] = []
-        grupos[origem].append(dados)
-
-    view = ListaImunesView(grupos, timeout=120)
+        origem = dados["origem"]
+        grupos.setdefault(origem, []).append(dados)
+    view = ListaImunesView(grupos)
     await interaction.response.send_message(embed=view.gerar_embed(), view=view if view.total_pages > 1 else None)
-    sent_message = await interaction.original_response()
-    view.message = sent_message
+    msg = await interaction.original_response()
+    view.message = msg
 
-# === COMANDO REMOVER IMUNE ===
-@bot.tree.command(name="imune_remover", description="Remove um personagem imune de um usuário (Admin somente).")
-@app_commands.checks.has_permissions(administrator=True)
-@app_commands.describe(usuario="Usuário alvo", personagem="Nome do personagem")
-async def imune_remover(interaction: discord.Interaction, usuario: discord.Member, personagem: str):
-    imunes = carregar_json(ARQUIVO_IMUNES)
+# === STATUS DO USUÁRIO ===
+@bot.tree.command(name="imune_status", description="Mostra seu status atual de imunidade e cooldown.")
+@canal_imunidade()
+async def imune_status(interaction: discord.Interaction):
+    user_id = str(interaction.user.id)
     guild_id = str(interaction.guild.id)
-    if guild_id not in imunes or not imunes[guild_id]:
-        await interaction.response.send_message("⚠️ Não há imunidades configuradas neste servidor.", ephemeral=True)
-        return
+    imunes = carregar_json(ARQUIVO_IMUNES)
+    cooldowns = carregar_json(ARQUIVO_COOLDOWN)
 
-    personagem_clean = personagem.strip().lower()
-    usuario_id = str(usuario.id)
-    encontrado = False
+    embed = discord.Embed(
+        title=f"📊 Status de {interaction.user.display_name}",
+        color=0x00B0F4
+    )
 
-    for user_id, dados in list(imunes[guild_id].items()):
-        if dados["personagem"].strip().lower() == personagem_clean and user_id == usuario_id:
-            del imunes[guild_id][user_id]
-            salvar_json(ARQUIVO_IMUNES, imunes)
-            encontrado = True
-            await interaction.response.send_message(f"🗑️ Imunidade de **{personagem}** removida para {usuario.mention}.")
-            break
+    # 🛡️ Imune ativo
+    personagem = None
+    if guild_id in imunes and user_id in imunes[guild_id]:
+        personagem = imunes[guild_id][user_id]
+        embed.add_field(
+            name="🛡️ Personagem Imune",
+            value=f"**{personagem['personagem']}** — {personagem['origem']}\n📅 Desde: `{personagem['data']}`",
+            inline=False
+        )
+    else:
+        embed.add_field(name="🛡️ Personagem Imune", value="Nenhum personagem imune ativo.", inline=False)
 
-    if not encontrado:
-        await interaction.response.send_message(f"⚠️ Nenhuma imunidade encontrada para {usuario.mention} com o personagem **{personagem}**.", ephemeral=True)
+    # ⏳ Cooldown
+    if user_id in cooldowns:
+        expira_em = datetime.strptime(cooldowns[user_id], "%Y-%m-%d %H:%M:%S")
+        agora = datetime.now()
+        if expira_em > agora:
+            restante = expira_em - agora
+            dias, resto = divmod(restante.total_seconds(), 86400)
+            horas, resto = divmod(restante.seconds, 3600)
+            minutos = (resto % 3600) // 60
+            tempo = f"{int(dias)}d {int(horas)}h {int(minutos)}min"
+            embed.add_field(name="⏳ Cooldown", value=f"Em andamento — expira em **{tempo}**.", inline=False)
+        else:
+            embed.add_field(name="⏳ Cooldown", value="Expirado (você já pode adicionar outro personagem).", inline=False)
+    else:
+        embed.add_field(name="⏳ Cooldown", value="Nenhum cooldown ativo.", inline=False)
 
-# === MONITORAMENTO DE MENSAGENS DE CASAMENTO ===
+    await interaction.response.send_message(embed=embed)
+
+# === EVENTO: PERSONAGEM PEGO ===
 @bot.event
 async def on_message(message: discord.Message):
     if message.author == bot.user:
@@ -288,21 +308,18 @@ async def on_message(message: discord.Message):
         return
 
     personagem_imune = None
-    for user_id, dados in imunes[guild_id].items():
+    for uid, dados in imunes[guild_id].items():
         if dados["personagem"].strip().lower() == personagem_nome.lower():
-            personagem_imune = (user_id, dados)
+            personagem_imune = (uid, dados)
             break
-
     if not personagem_imune:
         return
 
-    user_id, dados_personagem = personagem_imune
-
+    user_id, dados_p = personagem_imune
     config = carregar_json(ARQUIVO_CONFIG)
     canal_id = config.get(str(message.guild.id))
     if not canal_id:
         return
-
     canal = message.guild.get_channel(canal_id)
     if not canal:
         return
@@ -310,20 +327,26 @@ async def on_message(message: discord.Message):
     usuario_imune = message.guild.get_member(int(user_id))
     msg = ""
 
-    if usuario_nome.lower() == dados_personagem["usuario"].lower():
-        msg = f" {usuario_imune.mention}, você casou com **seu personagem imune**: 💖 **{personagem_nome} ({dados_personagem['origem']})**!"
+    if usuario_nome.lower() == dados_p["usuario"].lower():
+        msg = f"{usuario_imune.mention}, você casou com seu personagem imune 💖 **{personagem_nome} ({dados_p['origem']})**!"
     else:
-        msg = f" {usuario_imune.mention}, **seu personagem imune** foi pego por **{usuario_nome}**!\n> 💖 Personagem: **{personagem_nome} ({dados_personagem['origem']})**"
+        msg = f"{usuario_imune.mention}, seu personagem imune foi pego por **{usuario_nome}**!\n> 💖 **{personagem_nome} ({dados_p['origem']})**"
 
     await canal.send(msg)
+
+    # 🗑️ Remover personagem e aplicar cooldown
+    del imunes[guild_id][user_id]
+    salvar_json(ARQUIVO_IMUNES, imunes)
+    definir_cooldown(user_id)
+
     await bot.process_commands(message)
 
-# === TAREFA AUTOMÁTICA ===
+# === LOOP AUTOMÁTICO ===
 @tasks.loop(hours=1)
 async def verificar_imunidades():
-    print("⏳ Verificação de imunidades executada (sem expiração).")
+    print("⏳ Verificação de imunidades executada.")
 
-# === EVENTO DE INÍCIO ===
+# === EVENTO READY ===
 @bot.event
 async def on_ready():
     print(f"✅ Bot conectado como {bot.user}")
@@ -342,7 +365,6 @@ def keep_alive():
     t.start()
 keep_alive()
 
-# === AUTO-PING ===
 def auto_ping():
     while True:
         try:
@@ -356,7 +378,6 @@ ping_thread = Thread(target=auto_ping)
 ping_thread.daemon = True
 ping_thread.start()
 
-# === INICIAR BOT ===
 if __name__ == "__main__":
     if not TOKEN:
         print("❌ ERRO: DISCORD_BOT_TOKEN não encontrado!")
@@ -364,5 +385,5 @@ if __name__ == "__main__":
     try:
         bot.run(TOKEN)
     except discord.errors.LoginFailure:
-        print("❌ ERRO DE AUTENTICAÇÃO! Token inválido ou expirado.")
+        print("❌ Token inválido!")
         exit(1)
