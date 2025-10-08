@@ -104,12 +104,8 @@ class ListaImunesView(View):
         self.message = None
 
         if self.total_pages > 1:
-            self.add_item(Button(label="⏮️", style=discord.ButtonStyle.gray, custom_id="primeira"))
             self.add_item(Button(label="⬅️", style=discord.ButtonStyle.gray, custom_id="anterior"))
             self.add_item(Button(label="➡️", style=discord.ButtonStyle.gray, custom_id="proximo"))
-            self.add_item(Button(label="⏭️", style=discord.ButtonStyle.gray, custom_id="ultima"))
-        else:
-            self.clear_items()
 
     def gerar_embed(self):
         embed = discord.Embed(title="🧾 Lista de Personagens Imunes", color=0x5865F2)
@@ -131,11 +127,6 @@ class ListaImunesView(View):
         except:
             pass
 
-    @discord.ui.button(label="⏮️", style=discord.ButtonStyle.gray)
-    async def primeira(self, interaction: discord.Interaction, button: Button):
-        self.page = 0
-        await interaction.response.edit_message(embed=self.gerar_embed(), view=self)
-
     @discord.ui.button(label="⬅️", style=discord.ButtonStyle.gray)
     async def anterior(self, interaction: discord.Interaction, button: Button):
         if self.page > 0:
@@ -147,11 +138,6 @@ class ListaImunesView(View):
         if self.page < self.total_pages - 1:
             self.page += 1
             await interaction.response.edit_message(embed=self.gerar_embed(), view=self)
-
-    @discord.ui.button(label="⏭️", style=discord.ButtonStyle.gray)
-    async def ultima(self, interaction: discord.Interaction, button: Button):
-        self.page = self.total_pages - 1
-        await interaction.response.edit_message(embed=self.gerar_embed(), view=self)
 
 # === COMANDOS ADMINISTRATIVOS ===
 @bot.tree.command(name="set_canal_imune", description="Define o canal onde os comandos de imunidade funcionarão.")
