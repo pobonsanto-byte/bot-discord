@@ -311,9 +311,9 @@ async def on_message(message: discord.Message):
     msg = ""
 
     if usuario_nome.lower() == dados_personagem["usuario"].lower():
-        msg = f"🔔 {usuario_imune.mention}, você casou com **seu personagem imune**: 💖 **{personagem_nome} ({dados_personagem['origem']})**!"
+        msg = f" {usuario_imune.mention}, você casou com **seu personagem imune**: 💖 **{personagem_nome} ({dados_personagem['origem']})**!"
     else:
-        msg = f"⚠️ {usuario_imune.mention}, **seu personagem imune** foi pego por **{usuario_nome}**!\n> 💖 Personagem: **{personagem_nome} ({dados_personagem['origem']})**"
+        msg = f" {usuario_imune.mention}, **seu personagem imune** foi pego por **{usuario_nome}**!\n> 💖 Personagem: **{personagem_nome} ({dados_personagem['origem']})**"
 
     await canal.send(msg)
     await bot.process_commands(message)
