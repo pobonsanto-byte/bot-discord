@@ -16,7 +16,7 @@ from discord.ui import View, Button
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 ARQUIVO_IMUNES = "imunidades.json"
 ARQUIVO_CONFIG = "config.json"
-ARQUIVO_COOLDOWN = "cooldowns.json"  # ⏳ Cooldown
+ARQUIVO_COOLDOWN = "cooldowns.json"
 
 # === CONFIG GITHUB ===
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
@@ -57,7 +57,7 @@ def salvar_json(nome_arquivo, dados):
     if r.status_code not in [200, 201]:
         print(f"❌ Erro ao salvar {nome_arquivo}: {r.status_code} - {r.text}")
 
-# === FUNÇÕES COOLDOWN ===
+# === COOLDOWN ===
 def esta_em_cooldown(user_id):
     cooldowns = carregar_json(ARQUIVO_COOLDOWN)
     agora = agora_brasil()
@@ -93,7 +93,7 @@ class ImuneBot(discord.Client):
 
 bot = ImuneBot()
 
-# === AUXILIARES ===
+# === CANAL DE IMUNIDADE ===
 def canal_imunidade():
     async def predicate(interaction: discord.Interaction) -> bool:
         guild_id = str(interaction.guild.id)
@@ -261,47 +261,72 @@ async def imune_status(interaction: discord.Interaction):
         embed.add_field(name="⏳ Cooldown", value="Nenhum cooldown ativo.", inline=False)
     await interaction.response.send_message(embed=embed)
 
-# === EVENTO DE CASAMENTO ===
+# === EVENTOS ===
 @bot.event
-async def on_message(msg: discord.Message):
-    if msg.author == bot.user:
+async def on_message(message: discord.Message):
+    if message.author == bot.user:
         return
+
+    # 🔍 Detector de rolls da Mudae (qualquer personagem)
+    if message.author.bot and message.author.name.lower() == "mudae":
+        if message.embeds:
+            embed = message.embeds[0]
+            personagem = embed.title or ""
+            origem = embed.description or ""
+            if personagem:
+                config = carregar_json(ARQUIVO_CONFIG)
+                canal_id = config.get(str(message.guild.id))
+                if canal_id:
+                    canal = message.guild.get_channel(canal_id)
+                    if canal:
+                        await canal.send(f"⚠️ O personagem **{personagem}** apareceu no roll da Mudae!")
+
+    # 💖 Evento de casamento da Mudae
     padrao = r"💖\s*(.*?)\s*e\s*(.*?)\s*agora são casados!\s*💖"
-    m = re.search(padrao, msg.content)
+    m = re.search(padrao, message.content)
     if not m:
+        await bot.process_commands(message)
         return
+
     usuario_nome, personagem_nome = m.group(1).strip(), m.group(2).strip()
     imunes = carregar_json(ARQUIVO_IMUNES)
-    guild_id = str(msg.guild.id)
+    guild_id = str(message.guild.id)
     if guild_id not in imunes:
+        await bot.process_commands(message)
         return
+
     personagem_encontrado = None
     for uid, d in imunes[guild_id].items():
         if d["personagem"].strip().lower() == personagem_nome.lower():
             personagem_encontrado = (uid, d)
             break
     if not personagem_encontrado:
+        await bot.process_commands(message)
         return
+
     user_id, dados_p = personagem_encontrado
     config = carregar_json(ARQUIVO_CONFIG)
-    canal_id = config.get(str(msg.guild.id))
+    canal_id = config.get(str(message.guild.id))
     if not canal_id:
+        await bot.process_commands(message)
         return
-    canal = msg.guild.get_channel(canal_id)
-    if not canal:
-        return
-    usuario_imune = msg.guild.get_member(int(user_id))
-    texto = f"{usuario_imune.mention}, seu personagem imune **{personagem_nome} ({dados_p['origem']})** foi pego por **{usuario_nome}**!"
-    await canal.send(texto)
+
+    canal = message.guild.get_channel(canal_id)
+    if canal:
+        usuario_imune = message.guild.get_member(int(user_id))
+        texto = f"{usuario_imune.mention}, seu personagem imune **{personagem_nome} ({dados_p['origem']})** foi pego por **{usuario_nome}**!"
+        await canal.send(texto)
+
     del imunes[guild_id][user_id]
     salvar_json(ARQUIVO_IMUNES, imunes)
     definir_cooldown(user_id)
-    await bot.process_commands(msg)
 
-# === TAREFA ===
+    await bot.process_commands(message)
+
+# === LOOP DE VERIFICAÇÃO ===
 @tasks.loop(hours=1)
 async def verificar_imunidades():
-    print(f"⏳ Verificação executada ({agora_brasil().strftime('%d/%m/%Y %H:%M:%S')})")
+    print(f"⏳ Verificação ({agora_brasil().strftime('%d/%m/%Y %H:%M:%S')})")
 
 # === ON READY ===
 @bot.event
