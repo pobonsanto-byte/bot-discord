@@ -119,18 +119,33 @@ def verificar_novos_videos():
         if video_id in antigos:
             continue
 
+        # Shorts
         if "shorts" in link:
             tipo = "Short"
             emoji = "📹"
-        if e.find("{http://www.w3.org/2005/Atom}link").attrib.get("rel") == "alternate" and "live" in title.lower():
-            tipo = "Live"
-            emoji = "🔴"
 
-        novos.append({"id": video_id, "title": title, "link": link, "tipo": tipo, "emoji": emoji})
+        # Verifica se é live
+        link_rel = e.find("{http://www.w3.org/2005/Atom}link").attrib.get("rel", "")
+        title_lower = title.lower()
+        if "live" in title.lower() or "ao vivo" in title.lower():
+            tipo = "Live ao vivo"
+            emoji = "🔴"
+        elif "upcoming" in title.lower() or "scheduled" in title.lower() or "programada" in title.lower() or "em breve" in title.lower():
+            tipo = "Live programada"
+            emoji = "🟠"
+
+        novos.append({
+            "id": video_id,
+            "title": title,
+            "link": link,
+            "tipo": tipo,
+            "emoji": emoji
+        })
         antigos.append(video_id)
 
-    salvar_youtube(antigos[-50:])
+    salvar_youtube(antigos[-50:])  # Mantém os últimos 50 para evitar duplicatas
     return novos
+
 
 # === BOT ===
 class ImuneBot(discord.Client):
@@ -226,6 +241,22 @@ async def set_canal_youtube(interaction: discord.Interaction):
     await interaction.response.send_message(
         f"✅ Canal do YouTube definido: {interaction.channel.mention}"
     )
+
+@bot.tree.command(name="remover_canal_youtube", description="Remove o canal configurado para notificações do YouTube.")
+@app_commands.checks.has_permissions(administrator=True)
+async def remover_canal_youtube(interaction: discord.Interaction):
+    config = carregar_json(ARQUIVO_CONFIG)
+    guild_id = str(interaction.guild.id)
+
+    if "youtube" in config and guild_id in config["youtube"]:
+        del config["youtube"][guild_id]
+        # Se o objeto youtube ficar vazio, podemos remover a chave para manter o JSON limpo
+        if not config["youtube"]:
+            del config["youtube"]
+        salvar_json(ARQUIVO_CONFIG, config)
+        await interaction.response.send_message("🗑️ Canal de notificações do YouTube removido com sucesso.")
+    else:
+        await interaction.response.send_message("⚙️ Nenhum canal do YouTube configurado para este servidor.")
 
 @bot.tree.command(name="ver_canal_imune", description="Mostra qual canal está configurado para imunidade.")
 @app_commands.checks.has_permissions(administrator=True)
