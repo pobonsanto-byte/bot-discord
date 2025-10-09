@@ -18,6 +18,7 @@ TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 ARQUIVO_IMUNES = "imunidades.json"
 ARQUIVO_CONFIG = "config.json"
 ARQUIVO_COOLDOWN = "cooldowns.json"
+ARQUIVO_YOUTUBE = "youtube.json"
 
 # === CONFIG GITHUB ===
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
