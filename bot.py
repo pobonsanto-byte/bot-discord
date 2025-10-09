@@ -10,26 +10,18 @@ import requests
 import time
 import base64
 import re
-import pytz
 from discord.ui import View, Button
 
 # === CONFIGURAÇÃO ===
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 ARQUIVO_IMUNES = "imunidades.json"
 ARQUIVO_CONFIG = "config.json"
-ARQUIVO_COOLDOWN = "cooldowns.json"
+ARQUIVO_COOLDOWN = "cooldowns.json"  # ⏳ Cooldown
 
 # === CONFIG GITHUB ===
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 REPO = os.getenv("GITHUB_REPO")
 BRANCH = os.getenv("GITHUB_BRANCH", "main")
-
-# === FUSO HORÁRIO BRASIL ===
-fuso_brasil = pytz.timezone("America/Sao_Paulo")
-
-def agora_brasil():
-    """Retorna a data/hora atual no fuso de Brasília"""
-    return datetime.now(fuso_brasil)
 
 # === FUNÇÕES GITHUB ===
 def carregar_json(nome_arquivo):
@@ -64,7 +56,7 @@ def salvar_json(nome_arquivo, dados):
 # === FUNÇÕES COOLDOWN ===
 def esta_em_cooldown(user_id):
     cooldowns = carregar_json(ARQUIVO_COOLDOWN)
-    agora = agora_brasil()
+    agora = datetime.now()
     expira_em_str = cooldowns.get(str(user_id))
     if not expira_em_str:
         return False
@@ -77,7 +69,7 @@ def esta_em_cooldown(user_id):
 
 def definir_cooldown(user_id, dias=3):
     cooldowns = carregar_json(ARQUIVO_COOLDOWN)
-    expira_em = agora_brasil() + timedelta(days=dias)
+    expira_em = datetime.now() + timedelta(days=dias)
     cooldowns[str(user_id)] = expira_em.strftime("%Y-%m-%d %H:%M:%S")
     salvar_json(ARQUIVO_COOLDOWN, cooldowns)
 
@@ -181,7 +173,7 @@ async def remover_canal_imune(interaction: discord.Interaction):
     else:
         await interaction.response.send_message("⚙️ Nenhum canal de imunidade configurado.")
 
-# === REMOVER IMUNE (sem cooldown) ===
+# === COMANDO ADMIN PARA REMOVER IMUNE (sem cooldown) ===
 @bot.tree.command(name="imune_remover", description="Remove manualmente o personagem imune de um jogador (apenas admins).")
 @app_commands.describe(usuario="Usuário que terá o personagem removido")
 @app_commands.checks.has_permissions(administrator=True)
@@ -220,7 +212,7 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
         "usuario": interaction.user.name,
         "personagem": nome_personagem,
         "origem": jogo_anime,
-        "data": agora_brasil().strftime("%Y-%m-%d %H:%M:%S")
+        "data": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
     salvar_json(ARQUIVO_IMUNES, imunes)
     await interaction.response.send_message(f"🔒 {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!")
@@ -254,8 +246,8 @@ async def imune_status(interaction: discord.Interaction):
         embed.add_field(name="🔒 Personagem Imune", value="Nenhum ativo.", inline=False)
     if user_id in cooldowns:
         expira = datetime.strptime(cooldowns[user_id], "%Y-%m-%d %H:%M:%S")
-        if expira > agora_brasil():
-            restante = expira - agora_brasil()
+        if expira > datetime.now():
+            restante = expira - datetime.now()
             dias, resto = divmod(restante.total_seconds(), 86400)
             horas, resto = divmod(resto, 3600)
             minutos = (resto % 3600) // 60
@@ -313,7 +305,7 @@ async def verificar_imunidades():
 async def on_ready():
     print(f"✅ Logado como {bot.user}")
 
-# === KEEP ALIVE (Render) ===
+# === KEEP ALIVE ===
 app = Flask('')
 @app.route('/')
 def home(): return "🤖 Bot rodando!"
