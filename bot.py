@@ -267,35 +267,36 @@ async def on_message(message: discord.Message):
     if message.author == bot.user:
         return
 
-    # === DETECTOR DE ROLLS DA MUDAE ===
-if message.author.bot and message.author.name.lower() == "mudae":
-    if message.embeds:
-        embed = message.embeds[0]
-        personagem = ""
-        origem = ""
+        # === DETECTOR DE ROLLS DA MUDAE ===
+    if message.author.bot and message.author.name.lower() == "mudae":
+        if message.embeds:
+            embed = message.embeds[0]
+            personagem = ""
+            origem = ""
 
-        # Verifica se é o embed inicial de roll (aquele com "React with any emoji to claim!")
-        if embed.description and "React with any emoji to claim!" in embed.description:
-            # Extrai nome e origem
-            if embed.author and embed.author.name:
-                personagem = embed.author.name
-            elif embed.title:
-                personagem = embed.title
+            # Só processa se for o embed de roll (aquele com "React with any emoji to claim!")
+            if embed.description and "React with any emoji to claim!" in embed.description:
+                # Extrai o nome do personagem
+                if embed.author and embed.author.name:
+                    personagem = embed.author.name
+                elif embed.title:
+                    personagem = embed.title
 
-            if embed.description:
-                origem = embed.description
+                # Extrai origem (anime/jogo)
+                if embed.description:
+                    origem = embed.description
 
-            # Envia aviso apenas para o primeiro embed (de roll)
-            if personagem:
-                config = carregar_json(ARQUIVO_CONFIG)
-                canal_id = config.get(str(message.guild.id))
+                # Se achou personagem, envia o aviso
+                if personagem:
+                    config = carregar_json(ARQUIVO_CONFIG)
+                    canal_id = config.get(str(message.guild.id))
 
-                if canal_id:
-                    canal = message.guild.get_channel(canal_id)
-                    if canal:
-                        await canal.send(
-                            f"⚠️ O personagem **{personagem}** apareceu no roll da Mudae!"
-                        )
+                    if canal_id:
+                        canal = message.guild.get_channel(canal_id)
+                        if canal:
+                            await canal.send(
+                                f"⚠️ O personagem **{personagem}** apareceu no roll da Mudae!"
+                            )
 
     # 💖 Evento de casamento da Mudae
     padrao = r"💖\s*(.*?)\s*e\s*(.*?)\s*agora são casados!\s*💖"
