@@ -3,4 +3,3 @@ flask
 requests
 gspread
 oauth2client
-pytz
