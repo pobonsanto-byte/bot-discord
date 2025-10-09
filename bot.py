@@ -267,19 +267,33 @@ async def on_message(message: discord.Message):
     if message.author == bot.user:
         return
 
-    # 🔍 Detector de rolls da Mudae (qualquer personagem)
+    # === DETECTOR DE ROLLS DA MUDAE ===
     if message.author.bot and message.author.name.lower() == "mudae":
         if message.embeds:
             embed = message.embeds[0]
-            personagem = embed.title or ""
-            origem = embed.description or ""
+            personagem = ""
+            origem = ""
+
+            # Corrigido: Mudae usa às vezes author.name em vez de title
+            if embed.author and embed.author.name:
+                personagem = embed.author.name
+            elif embed.title:
+                personagem = embed.title
+
+            if embed.description:
+                origem = embed.description
+
+            # Se detectou o personagem, envia aviso
             if personagem:
                 config = carregar_json(ARQUIVO_CONFIG)
                 canal_id = config.get(str(message.guild.id))
+
                 if canal_id:
                     canal = message.guild.get_channel(canal_id)
                     if canal:
-                        await canal.send(f"⚠️ O personagem **{personagem}** apareceu no roll da Mudae!")
+                        await canal.send(
+                            f"⚠️ O personagem **{personagem}** apareceu no roll da Mudae!"
+                        )
 
     # 💖 Evento de casamento da Mudae
     padrao = r"💖\s*(.*?)\s*e\s*(.*?)\s*agora são casados!\s*💖"
