@@ -267,7 +267,7 @@ async def on_message(message: discord.Message):
     if message.author == bot.user:
         return
 
-            # === DETECTOR DE ROLLS DA MUDAE ===
+    # === DETECTOR DE ROLLS DA MUDAE ===
     if message.author.bot and message.author.name.lower() == "mudae":
         if message.embeds:
             embed = message.embeds[0]
@@ -307,13 +307,12 @@ async def on_message(message: discord.Message):
                                             )
                                 break  # Para o loop assim que encontrar o personagem
 
-
     # 💖 Evento de casamento da Mudae
     padrao = r"💖\s*(.*?)\s*e\s*(.*?)\s*agora são casados!\s*💖"
     m = re.search(padrao, message.content)
     if not m:
-        await bot.process_commands(message)
         return
+
 
     usuario_nome, personagem_nome = m.group(1).strip(), m.group(2).strip()
     imunes = carregar_json(ARQUIVO_IMUNES)
