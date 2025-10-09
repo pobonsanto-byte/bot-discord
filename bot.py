@@ -11,6 +11,7 @@ import time
 import base64
 import re
 from discord.ui import View, Button
+import xml.etree.ElementTree as ET
 
 # === CONFIGURAÇÃO ===
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -76,6 +77,59 @@ def definir_cooldown(user_id, dias=3):
     expira_em = agora_brasil() + timedelta(days=dias)
     cooldowns[str(user_id)] = expira_em.strftime("%Y-%m-%d %H:%M:%S")
     salvar_json(ARQUIVO_COOLDOWN, cooldowns)
+    
+# === YOUTUBE ===
+CANAL_YOUTUBE = "UCcMSONDJxb18PW5B8cxYdzQ"  # ID do canal
+ARQUIVO_YOUTUBE = "youtube.json"  # arquivo para salvar vídeos já notificados
+
+def carregar_youtube():
+    if not os.path.exists(ARQUIVO_YOUTUBE):
+        return []
+    with open(ARQUIVO_YOUTUBE, "r", encoding="utf-8") as f:
+        try:
+            return json.load(f)
+        except:
+            return []
+
+def salvar_youtube(dados):
+    with open(ARQUIVO_YOUTUBE, "w", encoding="utf-8") as f:
+        json.dump(dados, f, ensure_ascii=False, indent=4)
+
+def verificar_novos_videos():
+    url = f"https://www.youtube.com/feeds/videos.xml?channel_id={CANAL_YOUTUBE}"
+    r = requests.get(url)
+    if r.status_code != 200:
+        return []
+
+    from xml.etree import ElementTree
+    tree = ElementTree.fromstring(r.content)
+    entries = tree.findall("{http://www.w3.org/2005/Atom}entry")
+
+    antigos = carregar_youtube()
+    novos = []
+
+    for e in entries:
+        video_id = e.find("{http://www.youtube.com/xml/schemas/2015}videoId").text
+        title = e.find("{http://www.w3.org/2005/Atom}title").text
+        link = f"https://www.youtube.com/watch?v={video_id}"
+        tipo = "Vídeo"
+        emoji = "🎬"
+
+        if video_id in antigos:
+            continue
+
+        if "shorts" in link:
+            tipo = "Short"
+            emoji = "📹"
+        if e.find("{http://www.w3.org/2005/Atom}link").attrib.get("rel") == "alternate" and "live" in title.lower():
+            tipo = "Live"
+            emoji = "🔴"
+
+        novos.append({"id": video_id, "title": title, "link": link, "tipo": tipo, "emoji": emoji})
+        antigos.append(video_id)
+
+    salvar_youtube(antigos[-50:])
+    return novos
 
 # === BOT ===
 class ImuneBot(discord.Client):
@@ -90,6 +144,7 @@ class ImuneBot(discord.Client):
     async def setup_hook(self):
         await self.tree.sync()
         verificar_imunidades.start()
+        verificar_youtube.start()
 
 bot = ImuneBot()
 
@@ -154,6 +209,22 @@ async def set_canal_imune(interaction: discord.Interaction):
     config[str(interaction.guild.id)] = interaction.channel.id
     salvar_json(ARQUIVO_CONFIG, config)
     await interaction.response.send_message(f"✅ Canal de imunidade definido: {interaction.channel.mention}")
+
+@bot.tree.command(name="set_canal_youtube", description="Define o canal onde serão enviadas notificações do YouTube.")
+@app_commands.checks.has_permissions(administrator=True)
+async def set_canal_youtube(interaction: discord.Interaction):
+    config = carregar_json(ARQUIVO_CONFIG)
+    guild_id = str(interaction.guild.id)
+    
+    # Cria a chave "youtube" se não existir
+    if "youtube" not in config:
+        config["youtube"] = {}
+    config["youtube"][guild_id] = interaction.channel.id
+    salvar_json(ARQUIVO_CONFIG, config)
+    
+    await interaction.response.send_message(
+        f"✅ Canal do YouTube definido: {interaction.channel.mention}"
+    )
 
 @bot.tree.command(name="ver_canal_imune", description="Mostra qual canal está configurado para imunidade.")
 @app_commands.checks.has_permissions(administrator=True)
@@ -353,6 +424,28 @@ async def on_message(message: discord.Message):
 @tasks.loop(hours=1)
 async def verificar_imunidades():
     print(f"⏳ Verificação ({agora_brasil().strftime('%d/%m/%Y %H:%M:%S')})")
+
+# === LOOP YOUTUBE ===
+@tasks.loop(minutes=5)
+async def verificar_youtube():
+    novos_videos = verificar_novos_videos()
+    if not novos_videos:
+        return
+    for guild in bot.guilds:
+        config = carregar_json(ARQUIVO_CONFIG)
+        canal_id = None
+        if "youtube" in config and str(guild.id) in config["youtube"]:
+            canal_id = config["youtube"][str(guild.id)]
+        
+        if canal_id:
+            canal = guild.get_channel(canal_id)
+            if canal:
+                for video in novos_videos:
+                    await canal.send(
+                        f"{video['emoji']} @everyone Novo {video['tipo']} do ZankonYTB!\n"
+                        f"**{video['title']}**\n{video['link']}"
+                    )
+
 
 # === ON READY ===
 @bot.event
