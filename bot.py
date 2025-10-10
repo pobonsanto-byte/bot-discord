@@ -102,8 +102,7 @@ def verificar_novos_videos():
     if r.status_code != 200:
         return []
 
-    from xml.etree import ElementTree
-    tree = ElementTree.fromstring(r.content)
+    tree = ET.fromstring(r.content)
     entries = tree.findall("{http://www.w3.org/2005/Atom}entry")
 
     antigos = carregar_youtube()
@@ -119,20 +118,10 @@ def verificar_novos_videos():
         if video_id in antigos:
             continue
 
-        # Shorts
-        if "shorts" in link:
+        # Detecta Shorts
+        if "shorts" in link or "short" in title.lower():
             tipo = "Short"
             emoji = "📹"
-
-        # Verifica se é live
-        link_rel = e.find("{http://www.w3.org/2005/Atom}link").attrib.get("rel", "")
-        title_lower = title.lower()
-        if "live" in title.lower() or "LIVE ON" in title.lower():
-            tipo = "Live ao vivo"
-            emoji = "🔴"
-        elif "upcoming" in title.lower() or "scheduled" in title.lower() or "programada" in title.lower() or "LIVE ON" in title.lower():
-            tipo = "Live programada"
-            emoji = "🟠"
 
         novos.append({
             "id": video_id,
@@ -145,7 +134,6 @@ def verificar_novos_videos():
 
     salvar_youtube(antigos[-50:])  # Mantém os últimos 50 para evitar duplicatas
     return novos
-
 
 # === BOT ===
 class ImuneBot(discord.Client):
@@ -463,9 +451,11 @@ async def verificar_youtube():
     novos_videos = verificar_novos_videos()
     if not novos_videos:
         return
+
     for guild in bot.guilds:
         config = carregar_json(ARQUIVO_CONFIG)
         canal_id = None
+
         if "youtube" in config and str(guild.id) in config["youtube"]:
             canal_id = config["youtube"][str(guild.id)]
         
@@ -473,10 +463,19 @@ async def verificar_youtube():
             canal = guild.get_channel(canal_id)
             if canal:
                 for video in novos_videos:
-                    await canal.send(
-                        f"{video['emoji']} @everyone Novo {video['tipo']} do ZankonYTB!\n"
-                        f"**{video['title']}**\n{video['link']}"
-                    )
+                    if video["tipo"] == "Short":
+                        mensagem = (
+                            f"📹 @everyone Saiu Novo Short do Canal!\n"
+                            f"**{video['title']}**\n{video['link']}"
+                        )
+                    else:
+                        mensagem = (
+                            f"🎬 @everyone Saiu Novo Vídeo do Canal!\n"
+                            f"**{video['title']}**\n{video['link']}"
+                        )
+
+                    await canal.send(mensagem)
+
 
 
 # === ON READY ===
