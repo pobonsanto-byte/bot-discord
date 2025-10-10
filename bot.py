@@ -112,16 +112,22 @@ def verificar_novos_videos():
         video_id = e.find("{http://www.youtube.com/xml/schemas/2015}videoId").text
         title = e.find("{http://www.w3.org/2005/Atom}title").text
         link = f"https://www.youtube.com/watch?v={video_id}"
+
+        # 🧠 Ignora lives (títulos com "LIVE", "LIVE ON", "AO VIVO", etc)
+        if any(palavra in title.lower() for palavra in ["live", "ao vivo", "live on"]):
+            continue
+
         tipo = "Vídeo"
         emoji = "🎬"
 
-        if video_id in antigos:
-            continue
-
-        # Detecta Shorts
+        # 📹 Detecta Shorts
         if "shorts" in link or "short" in title.lower():
             tipo = "Short"
             emoji = "📹"
+
+        # 🔒 Ignora vídeos já notificados
+        if video_id in antigos:
+            continue
 
         novos.append({
             "id": video_id,
@@ -132,8 +138,9 @@ def verificar_novos_videos():
         })
         antigos.append(video_id)
 
-    salvar_youtube(antigos[-50:])  # Mantém os últimos 50 para evitar duplicatas
+    salvar_youtube(antigos[-50:])  # Mantém histórico recente
     return novos
+
 
 # === BOT ===
 class ImuneBot(discord.Client):
