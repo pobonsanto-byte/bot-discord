@@ -12,6 +12,7 @@ import base64
 import re
 from discord.ui import View, Button
 import xml.etree.ElementTree as ET
+import unicodedata
 
 # === CONFIGURAÇÃO ===
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -24,6 +25,13 @@ ARQUIVO_YOUTUBE = "youtube.json"
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 REPO = os.getenv("GITHUB_REPO")
 BRANCH = os.getenv("GITHUB_BRANCH", "main")
+
+def normalizar_texto(txt: str) -> str:
+    """Remove acentuação e converte para minúsculas."""
+    return ''.join(
+        c for c in unicodedata.normalize('NFD', txt)
+        if unicodedata.category(c) != 'Mn'
+    ).lower().strip()
 
 # === HORA LOCAL (BRASÍLIA, UTC-3) ===
 def agora_brasil():
@@ -299,24 +307,47 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
     imunes = carregar_json(ARQUIVO_IMUNES)
     guild_id, user_id = str(interaction.guild.id), str(interaction.user.id)
     imunes.setdefault(guild_id, {})
+
     if esta_em_cooldown(user_id):
-        await interaction.response.send_message(f"⏳ {interaction.user.mention}, você está em cooldown. Aguarde 3 dias.", ephemeral=True)
+        await interaction.response.send_message(
+            f"⏳ {interaction.user.mention}, você está em cooldown. Aguarde 3 dias.",
+            ephemeral=True
+        )
         return
+
     if user_id in imunes[guild_id]:
-        await interaction.response.send_message("⚠️ Você já possui um personagem imune.", ephemeral=True)
+        await interaction.response.send_message(
+            "⚠️ Você já possui um personagem imune.",
+            ephemeral=True
+        )
         return
-    for d in imunes[guild_id].values():
-        if d["personagem"].strip().lower() == nome_personagem.strip().lower():
-            await interaction.response.send_message("⚠️ Esse personagem já está imune.", ephemeral=True)
+
+    # Normaliza os textos para comparação
+    nome_normalizado = normalizar_texto(nome_personagem)
+    origem_normalizada = normalizar_texto(jogo_anime)
+
+    # 🔒 Impede nomes iguais com mesma origem (ignorando acentos e maiúsculas)
+    for uid, d in imunes[guild_id].items():
+        if (normalizar_texto(d["personagem"]) == nome_normalizado and
+            normalizar_texto(d["origem"]) == origem_normalizada):
+            await interaction.response.send_message(
+                f"⚠️ O personagem **{nome_personagem} ({jogo_anime})** já está imune por {d['usuario']}.",
+                ephemeral=True
+            )
             return
+
+    # ✅ Adiciona o personagem normalmente
     imunes[guild_id][user_id] = {
         "usuario": interaction.user.name,
         "personagem": nome_personagem,
         "origem": jogo_anime,
         "data": agora_brasil().strftime("%Y-%m-%d %H:%M:%S")
     }
+
     salvar_json(ARQUIVO_IMUNES, imunes)
-    await interaction.response.send_message(f"🔒 {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!")
+    await interaction.response.send_message(
+        f"🔒 {interaction.user.mention} definiu **{nome_personagem} ({jogo_anime})** como imune!"
+    )
 
 @bot.tree.command(name="imune_lista", description="Mostra a lista de personagens imunes.")
 @canal_imunidade()
