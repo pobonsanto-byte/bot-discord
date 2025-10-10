@@ -313,10 +313,10 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
         await interaction.response.send_message("⚠️ Você já possui um personagem imune.", ephemeral=True)
         return
     for d in imunes[guild_id].values():
-    nome_imune = normalizar(d["personagem"])
-    origem_imune = normalizar(d["origem"])
-    nome_novo = normalizar(nome_personagem)
-    origem_nova = normalizar(jogo_anime)
+        nome_imune = normalizar(d["personagem"])
+        origem_imune = normalizar(d["origem"])
+        nome_novo = normalizar(nome_personagem)
+        origem_nova = normalizar(jogo_anime)
 
     if nome_imune == nome_novo and origem_imune == origem_nova:
         await interaction.response.send_message(
