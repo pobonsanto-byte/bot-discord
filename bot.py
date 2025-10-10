@@ -365,8 +365,8 @@ async def on_message(message: discord.Message):
             personagem = ""
             origem = ""
 
-            # Só processa se for o embed de roll (aquele com "React with any emoji to claim!")
-            if embed.description and "React with any emoji to claim!" in embed.description:
+            # Só processa se for o embed de roll (aquele com "Reaja com qualquer emoji para casar!")
+            if embed.description and "Reaja com qualquer emoji para casar!" in embed.description:
                 # Extrai nome do personagem
                 if embed.author and embed.author.name:
                     personagem = embed.author.name
