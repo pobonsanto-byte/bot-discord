@@ -12,7 +12,6 @@ import base64
 import re
 from discord.ui import View, Button
 import xml.etree.ElementTree as ET
-import unicodedata
 
 # === CONFIGURAÇÃO ===
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -25,12 +24,6 @@ ARQUIVO_YOUTUBE = "youtube.json"
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 REPO = os.getenv("GITHUB_REPO")
 BRANCH = os.getenv("GITHUB_BRANCH", "main")
-
-
-# ✅ Adicione AQUI logo abaixo:
-def normalizar(txt: str) -> str:
-    """Remove acentos e deixa tudo minúsculo para comparação."""
-    return unicodedata.normalize("NFKD", txt).encode("ASCII", "ignore").decode().lower().strip()
 
 # === HORA LOCAL (BRASÍLIA, UTC-3) ===
 def agora_brasil():
@@ -67,29 +60,24 @@ def salvar_json(nome_arquivo, dados):
         print(f"❌ Erro ao salvar {nome_arquivo}: {r.status_code} - {r.text}")
 
 # === COOLDOWN ===
-# Verifica cooldown por servidor
 def esta_em_cooldown(user_id):
     cooldowns = carregar_json(ARQUIVO_COOLDOWN)
-    key = f"{guild_id}-{user_id}"
     agora = agora_brasil()
-    expira_em_str = cooldowns.get(key)
+    expira_em_str = cooldowns.get(str(user_id))
     if not expira_em_str:
         return False
     expira_em = datetime.strptime(expira_em_str, "%Y-%m-%d %H:%M:%S")
     if agora >= expira_em:
-        del cooldowns[key]
+        del cooldowns[str(user_id)]
         salvar_json(ARQUIVO_COOLDOWN, cooldowns)
         return False
     return True
 
-# Define cooldown por servidor
 def definir_cooldown(user_id, dias=3):
     cooldowns = carregar_json(ARQUIVO_COOLDOWN)
-    key = f"{guild_id}-{user_id}"
     expira_em = agora_brasil() + timedelta(days=dias)
-    cooldowns[key] = expira_em.strftime("%Y-%m-%d %H:%M:%S")
+    cooldowns[str(user_id)] = expira_em.strftime("%Y-%m-%d %H:%M:%S")
     salvar_json(ARQUIVO_COOLDOWN, cooldowns)
-
     
 # === YOUTUBE ===
 CANAL_YOUTUBE = "UCcMSONDJxb18PW5B8cxYdzQ"  # ID do canal
@@ -311,26 +299,16 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
     imunes = carregar_json(ARQUIVO_IMUNES)
     guild_id, user_id = str(interaction.guild.id), str(interaction.user.id)
     imunes.setdefault(guild_id, {})
-    if esta_em_cooldown(guild_id, user_id):
+    if esta_em_cooldown(user_id):
         await interaction.response.send_message(f"⏳ {interaction.user.mention}, você está em cooldown. Aguarde 3 dias.", ephemeral=True)
         return
     if user_id in imunes[guild_id]:
         await interaction.response.send_message("⚠️ Você já possui um personagem imune.", ephemeral=True)
         return
     for d in imunes[guild_id].values():
-        nome_imune = normalizar(d["personagem"])
-        origem_imune = normalizar(d["origem"])
-        nome_novo = normalizar(nome_personagem)
-        origem_nova = normalizar(jogo_anime)
-
-    if nome_imune == nome_novo and origem_imune == origem_nova:
-        await interaction.response.send_message(
-            "⚠️ Esse personagem (nessa origem) já está imune.",
-            ephemeral=True
-        )
-        return
-
-
+        if d["personagem"].strip().lower() == nome_personagem.strip().lower():
+            await interaction.response.send_message("⚠️ Esse personagem já está imune.", ephemeral=True)
+            return
     imunes[guild_id][user_id] = {
         "usuario": interaction.user.name,
         "personagem": nome_personagem,
@@ -394,30 +372,26 @@ async def on_message(message: discord.Message):
             personagem = ""
             origem = ""
 
+            # Só processa se for o embed de roll (aquele com "Reaja com qualquer emoji para casar!")
             if embed.description and "Reaja com qualquer emoji para casar!" in embed.description:
+                # Extrai nome do personagem
                 if embed.author and embed.author.name:
                     personagem = embed.author.name
                 elif embed.title:
                     personagem = embed.title
 
+                # Extrai origem (anime/jogo)
                 if embed.description:
                     origem = embed.description
 
-                def normalizar_nome(nome: str):
-                    nome = unicodedata.normalize("NFD", nome)
-                    nome = nome.encode("ascii", "ignore").decode("utf-8")
-                    return nome.strip().lower()
-
+                # Verifica se o personagem está na lista de imunidades
                 if personagem:
                     imunes = carregar_json(ARQUIVO_IMUNES)
                     guild_id = str(message.guild.id)
 
                     if guild_id in imunes:
-                        personagem_normalizado = normalizar_nome(personagem)
-
                         for user_id, dados in imunes[guild_id].items():
-                            nome_imune_normalizado = normalizar_nome(dados["personagem"])
-                            if nome_imune_normalizado == personagem_normalizado:
+                            if dados["personagem"].strip().lower() == personagem.strip().lower():
                                 config = carregar_json(ARQUIVO_CONFIG)
                                 canal_id = config.get(str(message.guild.id))
 
@@ -429,8 +403,7 @@ async def on_message(message: discord.Message):
                                             await canal.send(
                                                 f"⚠️ {usuario.mention}, seu personagem imune **{personagem} ({dados['origem']})** apareceu no roll da Mudae!"
                                             )
-                                break
-
+                                break  # Para o loop assim que encontrar o personagem
 
     # 💖 Evento de casamento da Mudae
     padrao = r"💖\s*(.*?)\s*e\s*(.*?)\s*agora são casados!\s*💖"
