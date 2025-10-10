@@ -68,7 +68,7 @@ def salvar_json(nome_arquivo, dados):
 
 # === COOLDOWN ===
 # Verifica cooldown por servidor
-def esta_em_cooldown(guild_id, user_id):
+def esta_em_cooldown(user_id):
     cooldowns = carregar_json(ARQUIVO_COOLDOWN)
     key = f"{guild_id}-{user_id}"
     agora = agora_brasil()
@@ -83,7 +83,7 @@ def esta_em_cooldown(guild_id, user_id):
     return True
 
 # Define cooldown por servidor
-def definir_cooldown(guild_id, user_id, dias=3):
+def definir_cooldown(user_id, dias=3):
     cooldowns = carregar_json(ARQUIVO_COOLDOWN)
     key = f"{guild_id}-{user_id}"
     expira_em = agora_brasil() + timedelta(days=dias)
@@ -470,7 +470,7 @@ async def on_message(message: discord.Message):
 
     del imunes[guild_id][user_id]
     salvar_json(ARQUIVO_IMUNES, imunes)
-    definir_cooldown(guild_id, user_id)
+    definir_cooldown(user_id)
 
     await bot.process_commands(message)
 
