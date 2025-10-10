@@ -127,10 +127,10 @@ def verificar_novos_videos():
         # Verifica se é live
         link_rel = e.find("{http://www.w3.org/2005/Atom}link").attrib.get("rel", "")
         title_lower = title.lower()
-        if "live" in title.lower() or "ao vivo" in title.lower():
+        if "live" in title.lower() or "LIVE ON" in title.lower():
             tipo = "Live ao vivo"
             emoji = "🔴"
-        elif "upcoming" in title.lower() or "scheduled" in title.lower() or "programada" in title.lower() or "em breve" in title.lower():
+        elif "upcoming" in title.lower() or "scheduled" in title.lower() or "programada" in title.lower() or "LIVE ON" in title.lower():
             tipo = "Live programada"
             emoji = "🟠"
 
