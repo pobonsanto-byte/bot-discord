@@ -383,54 +383,49 @@ async def on_message(message: discord.Message):
         return
 
     # === DETECTOR DE ROLLS DA MUDAE ===
-if message.author.bot and message.author.name.lower() == "mudae":
-    if message.embeds:
-        embed = message.embeds[0]
-        personagem = ""
-        origem = ""
+    if message.author.bot and message.author.name.lower() == "mudae":
+        if message.embeds:
+            embed = message.embeds[0]
+            personagem = ""
+            origem = ""
 
-        # Só processa se for o embed de roll (aquele com "Reaja com qualquer emoji para casar!")
-        if embed.description and "Reaja com qualquer emoji para casar!" in embed.description:
-            # Extrai nome do personagem
-            if embed.author and embed.author.name:
-                personagem = embed.author.name
-            elif embed.title:
-                personagem = embed.title
+            if embed.description and "Reaja com qualquer emoji para casar!" in embed.description:
+                if embed.author and embed.author.name:
+                    personagem = embed.author.name
+                elif embed.title:
+                    personagem = embed.title
 
-            # Extrai origem (anime/jogo)
-            if embed.description:
-                origem = embed.description
+                if embed.description:
+                    origem = embed.description
 
-            # Função auxiliar para normalizar nomes
-            def normalizar_nome(nome: str):
-                # remove acentos e converte pra minúsculas
-                nome = unicodedata.normalize("NFD", nome)
-                nome = nome.encode("ascii", "ignore").decode("utf-8")
-                return nome.strip().lower()
+                def normalizar_nome(nome: str):
+                    nome = unicodedata.normalize("NFD", nome)
+                    nome = nome.encode("ascii", "ignore").decode("utf-8")
+                    return nome.strip().lower()
 
-            # Verifica se o personagem está na lista de imunidades
-            if personagem:
-                imunes = carregar_json(ARQUIVO_IMUNES)
-                guild_id = str(message.guild.id)
+                if personagem:
+                    imunes = carregar_json(ARQUIVO_IMUNES)
+                    guild_id = str(message.guild.id)
 
-                if guild_id in imunes:
-                    personagem_normalizado = normalizar_nome(personagem)
+                    if guild_id in imunes:
+                        personagem_normalizado = normalizar_nome(personagem)
 
-                    for user_id, dados in imunes[guild_id].items():
-                        nome_imune_normalizado = normalizar_nome(dados["personagem"])
-                        if nome_imune_normalizado == personagem_normalizado:  # 🔹 comparação insensível a acento/maiúscula
-                            config = carregar_json(ARQUIVO_CONFIG)
-                            canal_id = config.get(str(message.guild.id))
+                        for user_id, dados in imunes[guild_id].items():
+                            nome_imune_normalizado = normalizar_nome(dados["personagem"])
+                            if nome_imune_normalizado == personagem_normalizado:
+                                config = carregar_json(ARQUIVO_CONFIG)
+                                canal_id = config.get(str(message.guild.id))
 
-                            if canal_id:
-                                canal = message.guild.get_channel(canal_id)
-                                if canal:
-                                    usuario = message.guild.get_member(int(user_id))
-                                    if usuario:
-                                        await canal.send(
-                                            f"⚠️ {usuario.mention}, seu personagem imune **{personagem} ({dados['origem']})** apareceu no roll da Mudae!"
-                                        )
-                            break  # Para o loop assim que encontrar o personagem
+                                if canal_id:
+                                    canal = message.guild.get_channel(canal_id)
+                                    if canal:
+                                        usuario = message.guild.get_member(int(user_id))
+                                        if usuario:
+                                            await canal.send(
+                                                f"⚠️ {usuario.mention}, seu personagem imune **{personagem} ({dados['origem']})** apareceu no roll da Mudae!"
+                                            )
+                                break
+
 
     # 💖 Evento de casamento da Mudae
     padrao = r"💖\s*(.*?)\s*e\s*(.*?)\s*agora são casados!\s*💖"
