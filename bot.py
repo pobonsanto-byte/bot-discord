@@ -67,24 +67,29 @@ def salvar_json(nome_arquivo, dados):
         print(f"❌ Erro ao salvar {nome_arquivo}: {r.status_code} - {r.text}")
 
 # === COOLDOWN ===
-def esta_em_cooldown(user_id):
+# Verifica cooldown por servidor
+def esta_em_cooldown(guild_id, user_id):
     cooldowns = carregar_json(ARQUIVO_COOLDOWN)
+    key = f"{guild_id}-{user_id}"
     agora = agora_brasil()
-    expira_em_str = cooldowns.get(str(user_id))
+    expira_em_str = cooldowns.get(key)
     if not expira_em_str:
         return False
     expira_em = datetime.strptime(expira_em_str, "%Y-%m-%d %H:%M:%S")
     if agora >= expira_em:
-        del cooldowns[str(user_id)]
+        del cooldowns[key]
         salvar_json(ARQUIVO_COOLDOWN, cooldowns)
         return False
     return True
 
-def definir_cooldown(user_id, dias=3):
+# Define cooldown por servidor
+def definir_cooldown(guild_id, user_id, dias=3):
     cooldowns = carregar_json(ARQUIVO_COOLDOWN)
+    key = f"{guild_id}-{user_id}"
     expira_em = agora_brasil() + timedelta(days=dias)
-    cooldowns[str(user_id)] = expira_em.strftime("%Y-%m-%d %H:%M:%S")
+    cooldowns[key] = expira_em.strftime("%Y-%m-%d %H:%M:%S")
     salvar_json(ARQUIVO_COOLDOWN, cooldowns)
+
     
 # === YOUTUBE ===
 CANAL_YOUTUBE = "UCcMSONDJxb18PW5B8cxYdzQ"  # ID do canal
@@ -306,7 +311,7 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
     imunes = carregar_json(ARQUIVO_IMUNES)
     guild_id, user_id = str(interaction.guild.id), str(interaction.user.id)
     imunes.setdefault(guild_id, {})
-    if esta_em_cooldown(user_id):
+    if esta_em_cooldown(guild_id, user_id):
         await interaction.response.send_message(f"⏳ {interaction.user.mention}, você está em cooldown. Aguarde 3 dias.", ephemeral=True)
         return
     if user_id in imunes[guild_id]:
@@ -465,7 +470,7 @@ async def on_message(message: discord.Message):
 
     del imunes[guild_id][user_id]
     salvar_json(ARQUIVO_IMUNES, imunes)
-    definir_cooldown(user_id)
+    definir_cooldown(guild_id, user_id)
 
     await bot.process_commands(message)
 
