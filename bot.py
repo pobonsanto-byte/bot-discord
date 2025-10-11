@@ -436,87 +436,83 @@ async def on_message(message: discord.Message):
                                             )
                                 break  # Para o loop assim que encontrar o personagem
 
-        # 💖 Evento de casamento da Mudae (inclui $rc personalizados)
-        conteudo = message.content.strip()
+        # 💖 Evento de casamento da Mudae (apenas oficial)
+if message.author.bot and message.author.id == 432610292342587392:
+    conteudo = message.content.strip()
 
-        # Garante que a mensagem pareça de casamento
-        if "💖" not in conteudo and "❤️" not in conteudo:
-            return
+    # Garante que a mensagem seja de casamento
+    if "💖" not in conteudo and "❤️" not in conteudo:
+        return
 
-        padrao = r"💖\s*(.*?)\s*e\s*(.*?)\s*agora são casados!\s*💖"
-        m = re.search(padrao, conteudo)
+    padrao = r"💖\s*(.*?)\s*e\s*(.*?)\s*agora são casados!\s*💖"
+    m = re.search(padrao, conteudo)
 
-        usuario_nome = None
-        personagem_nome = None
+    usuario_nome = None
+    personagem_nome = None
 
-        if m:
-            # 🧩 Caso padrão
-            usuario_nome, personagem_nome = m.group(1).strip(), m.group(2).strip()
-        else:
-            # 🧠 Caso personalizado ($rc customizado)
-            imunes = carregar_json(ARQUIVO_IMUNES)
-            guild_id = str(message.guild.id)
-            if guild_id in imunes:
-                for uid, d in imunes[guild_id].items():
-                    personagem = d["personagem"].strip().lower()
-                    if personagem in conteudo.lower():
-                        personagem_nome = d["personagem"]
-
-                        # tenta achar o usuário que casou
-                        if message.mentions:
-                            usuario_nome = message.mentions[0].display_name
-                        else:
-                            # tenta extrair o nome antes do personagem
-                            padrao_nome = rf"(.*?)\s*(?:casou|com|pegou|se casou com).{{0,30}}{re.escape(personagem)}"
-                            m2 = re.search(padrao_nome, conteudo, re.IGNORECASE)
-                            if m2:
-                                usuario_nome = m2.group(1).strip()
-                            else:
-                                usuario_nome = "Desconhecido"
-                        break
-
-        # Se ainda não achou nada, ignora
-        if not personagem_nome:
-            return
-
-        # === Verifica se o personagem é imune ===
+    if m:
+        # 🧩 Caso padrão
+        usuario_nome, personagem_nome = m.group(1).strip(), m.group(2).strip()
+    else:
+        # 🧠 Caso personalizado ($rc customizado) dentro da Mudae
         imunes = carregar_json(ARQUIVO_IMUNES)
         guild_id = str(message.guild.id)
-        if guild_id not in imunes:
-            return
+        if guild_id in imunes:
+            for uid, d in imunes[guild_id].items():
+                personagem = d["personagem"].strip().lower()
+                if personagem in conteudo.lower():
+                    personagem_nome = d["personagem"]
 
-        personagem_encontrado = None
-        for uid, d in imunes[guild_id].items():
-            if d["personagem"].strip().lower() == personagem_nome.lower():
-                personagem_encontrado = (uid, d)
-                break
+                    # tenta achar o usuário que casou
+                    if message.mentions:
+                        usuario_nome = message.mentions[0].display_name
+                    else:
+                        padrao_nome = rf"(.*?)\s*(?:casou|com|pegou|se casou com).{{0,30}}{re.escape(personagem)}"
+                        m2 = re.search(padrao_nome, conteudo, re.IGNORECASE)
+                        if m2:
+                            usuario_nome = m2.group(1).strip()
+                        else:
+                            usuario_nome = "Desconhecido"
+                    break
 
-        if not personagem_encontrado:
-            return
+    # Se não achou personagem, ignora
+    if not personagem_nome:
+        return
 
-        user_id, dados_p = personagem_encontrado
-        config = carregar_json(ARQUIVO_CONFIG)
-        canal_id = config.get(str(message.guild.id))
-        if not canal_id:
-            return
+    # === Verifica se o personagem é imune ===
+    imunes = carregar_json(ARQUIVO_IMUNES)
+    guild_id = str(message.guild.id)
+    if guild_id not in imunes:
+        return
 
-        canal = message.guild.get_channel(canal_id)
-        if canal:
-            usuario_imune = message.guild.get_member(int(user_id))
-            texto = (
-                f"⚠️ {usuario_imune.mention}, seu personagem imune "
-                f"**{personagem_nome} ({dados_p['origem']})** foi pego por **{usuario_nome}**!"
-            )
-            await canal.send(texto)
+    personagem_encontrado = None
+    for uid, d in imunes[guild_id].items():
+        if d["personagem"].strip().lower() == personagem_nome.lower():
+            personagem_encontrado = (uid, d)
+            break
 
-        del imunes[guild_id][user_id]
-        salvar_json(ARQUIVO_IMUNES, imunes)
-        definir_cooldown(user_id)
+    if not personagem_encontrado:
+        return
 
-    # Não é necessário processar outros comandos, então essa linha pode ser removida
-    # await bot.process_commands(message)
+    user_id, dados_p = personagem_encontrado
+    config = carregar_json(ARQUIVO_CONFIG)
+    canal_id = config.get(str(message.guild.id))
+    if not canal_id:
+        return
 
-    await bot.process_commands(message)
+    canal = message.guild.get_channel(canal_id)
+    if canal:
+        usuario_imune = message.guild.get_member(int(user_id))
+        texto = (
+            f"⚠️ {usuario_imune.mention}, seu personagem imune "
+            f"**{personagem_nome} ({dados_p['origem']})** foi pego por **{usuario_nome}**!"
+        )
+        await canal.send(texto)
+
+    del imunes[guild_id][user_id]
+    salvar_json(ARQUIVO_IMUNES, imunes)
+    definir_cooldown(user_id)
+
 
 # === LOOP DE VERIFICAÇÃO ===
 @tasks.loop(hours=1)
