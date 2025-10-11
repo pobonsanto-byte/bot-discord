@@ -442,7 +442,7 @@ if message.author.bot and message.author.id == 432610292342587392:
 
     # Garante que a mensagem pareça de casamento
     if "💖" not in conteudo and "❤️" not in conteudo:
-        return
+            return
 
     padrao = r"💖\s*(.*?)\s*e\s*(.*?)\s*agora são casados!\s*💖"
     m = re.search(padrao, conteudo)
