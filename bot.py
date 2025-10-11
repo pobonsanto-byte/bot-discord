@@ -396,60 +396,41 @@ async def on_message(message: discord.Message):
     if message.author == bot.user:
         return
 
-    # === DETECTOR DE ROLLS DA MUDAE ===
-    if message.author.bot and message.author.id == 432610292342587392:
-        if message.embeds:
-            embed = message.embeds[0]
-            personagem = ""
-            origem = ""
-
-            # Só processa se for o embed de roll (aquele com "Reaja com qualquer emoji para casar!")
-            if embed.description and "Reaja com qualquer emoji para casar!" in embed.description:
-                # Extrai nome do personagem
-                if embed.author and embed.author.name:
-                    personagem = embed.author.name
-                elif embed.title:
-                    personagem = embed.title
-
-                # Extrai origem (anime/jogo)
-                if embed.description:
-                    origem = embed.description
-
-                # Verifica se o personagem está na lista de imunidades
-                if personagem:
-                    imunes = carregar_json(ARQUIVO_IMUNES)
-                    guild_id = str(message.guild.id)
-
-                    if guild_id in imunes:
-                        for user_id, dados in imunes[guild_id].items():
-                            if dados["personagem"].strip().lower() == personagem.strip().lower():
-                                config = carregar_json(ARQUIVO_CONFIG)
-                                canal_id = config.get(str(message.guild.id))
-
-                                if canal_id:
-                                    canal = message.guild.get_channel(canal_id)
-                                    if canal:
-                                        usuario = message.guild.get_member(int(user_id))
-                                        if usuario:
-                                            await canal.send(
-                                                f"⚠️ {usuario.mention}, seu personagem imune **{personagem} ({dados['origem']})** apareceu no roll da Mudae!"
-                                            )
-                                break  # Para o loop assim que encontrar o personagem
-
-        # 💖 Evento de casamento da Mudae (apenas oficial)
-@bot.event
-async def on_message(message: discord.Message):
-    if message.author == bot.user:
+    # Só monitora mensagens da Mudae
+    if not (message.author.bot and message.author.id == 432610292342587392):
         return
 
-    # 💖 Evento de casamento da Mudae (inclui $rc personalizados)
-    if message.author.bot and message.author.id == 432610292342587392:
-        conteudo = message.content.strip()
+    # ===========================
+    # 1️⃣ Detecta rolls da Mudae
+    # ===========================
+    if message.embeds:
+        embed = message.embeds[0]
+        if embed.description and "Reaja com qualquer emoji para casar!" in embed.description:
+            personagem = embed.author.name if embed.author else (embed.title or "")
+            origem = embed.description
+            if personagem:
+                imunes = carregar_json(ARQUIVO_IMUNES)
+                guild_id = str(message.guild.id)
+                if guild_id in imunes:
+                    for user_id, dados in imunes[guild_id].items():
+                        if dados["personagem"].strip().lower() == personagem.strip().lower():
+                            config = carregar_json(ARQUIVO_CONFIG)
+                            canal_id = config.get(guild_id)
+                            if canal_id:
+                                canal = message.guild.get_channel(canal_id)
+                                if canal:
+                                    usuario = message.guild.get_member(int(user_id))
+                                    if usuario:
+                                        await canal.send(
+                                            f"⚠️ {usuario.mention}, seu personagem imune **{personagem} ({dados['origem']})** apareceu no roll da Mudae!"
+                                        )
+                            break
 
-        # Garante que a mensagem pareça de casamento
-        if "💖" not in conteudo and "❤️" not in conteudo:
-            return
-
+    # ===========================
+    # 2️⃣ Evento de casamento 💖
+    # ===========================
+    conteudo = message.content.strip()
+    if "💖" in conteudo or "❤️" in conteudo:
         padrao = r"💖\s*(.*?)\s*e\s*(.*?)\s*agora são casados!\s*💖"
         m = re.search(padrao, conteudo)
 
@@ -457,10 +438,8 @@ async def on_message(message: discord.Message):
         personagem_nome = None
 
         if m:
-            # 🧩 Caso padrão
             usuario_nome, personagem_nome = m.group(1).strip(), m.group(2).strip()
         else:
-            # 🧠 Caso personalizado ($rc customizado)
             imunes = carregar_json(ARQUIVO_IMUNES)
             guild_id = str(message.guild.id)
             if guild_id in imunes:
@@ -468,59 +447,35 @@ async def on_message(message: discord.Message):
                     personagem = d["personagem"].strip().lower()
                     if personagem in conteudo.lower():
                         personagem_nome = d["personagem"]
-
-                        # tenta achar o usuário que casou
                         if message.mentions:
                             usuario_nome = message.mentions[0].display_name
                         else:
-                            # tenta extrair o nome antes do personagem
                             padrao_nome = rf"(.*?)\s*(?:casou|com|pegou|se casou com).{{0,30}}{re.escape(personagem)}"
                             m2 = re.search(padrao_nome, conteudo, re.IGNORECASE)
-                            if m2:
-                                usuario_nome = m2.group(1).strip()
-                            else:
-                                usuario_nome = "Desconhecido"
+                            usuario_nome = m2.group(1).strip() if m2 else "Desconhecido"
                         break
 
-        # Se ainda não achou nada, ignora
-        if not personagem_nome:
-            return
-
-        # === Verifica se o personagem é imune ===
-        imunes = carregar_json(ARQUIVO_IMUNES)
-        guild_id = str(message.guild.id)
-        if guild_id not in imunes:
-            return
-
-        personagem_encontrado = None
-        for uid, d in imunes[guild_id].items():
-            if d["personagem"].strip().lower() == personagem_nome.lower():
-                personagem_encontrado = (uid, d)
-                break
-
-        if not personagem_encontrado:
-            return
-
-        user_id, dados_p = personagem_encontrado
-        config = carregar_json(ARQUIVO_CONFIG)
-        canal_id = config.get(str(message.guild.id))
-        if not canal_id:
-            return
-
-        canal = message.guild.get_channel(canal_id)
-        if canal:
-            usuario_imune = message.guild.get_member(int(user_id))
-            texto = (
-                f"⚠️ {usuario_imune.mention}, seu personagem imune "
-                f"**{personagem_nome} ({dados_p['origem']})** foi pego por **{usuario_nome}**!"
-            )
-            await canal.send(texto)
-
-        del imunes[guild_id][user_id]
-        salvar_json(ARQUIVO_IMUNES, imunes)
-        definir_cooldown(user_id)
-
-    # Não processa outros comandos aqui, porque só queremos monitorar a Mudae
+        if personagem_nome:
+            imunes = carregar_json(ARQUIVO_IMUNES)
+            guild_id = str(message.guild.id)
+            if guild_id in imunes:
+                for user_id, dados_p in imunes[guild_id].items():
+                    if dados_p["personagem"].strip().lower() == personagem_nome.lower():
+                        config = carregar_json(ARQUIVO_CONFIG)
+                        canal_id = config.get(guild_id)
+                        if canal_id:
+                            canal = message.guild.get_channel(canal_id)
+                            if canal:
+                                usuario_imune = message.guild.get_member(int(user_id))
+                                if usuario_imune:
+                                    await canal.send(
+                                        f"⚠️ {usuario_imune.mention}, seu personagem imune "
+                                        f"**{personagem_nome} ({dados_p['origem']})** foi pego por **{usuario_nome}**!"
+                                    )
+                        del imunes[guild_id][user_id]
+                        salvar_json(ARQUIVO_IMUNES, imunes)
+                        definir_cooldown(user_id)
+                        break
 
 
 
