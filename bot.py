@@ -473,15 +473,24 @@ async def on_message(message: discord.Message):
             message.guild.members
         )
 
-        if pegador:
+        # --- Define o texto da notificação ---
+        if pegador and pegador.id == usuario_imune.id:
+            # O próprio dono casou com seu personagem imune
             texto = (
-                f"{usuario_imune.mention}, seu personagem imune **{personagem_nome} ({dados_p['origem']})** "
-                f"foi pego por {pegador.mention}! 💖"
+                f"💖 {usuario_imune.mention}, seu personagem imune **{personagem_nome} ({dados_p['origem']})** "
+                f"se casou com você! "
+            )
+        elif pegador:
+            # Outra pessoa pegou o personagem
+            texto = (
+                f"⚠️ {usuario_imune.mention}, seu personagem imune **{personagem_nome} ({dados_p['origem']})** "
+                f"se casou com {pegador.mention}! "
             )
         else:
+            # Não achou o pegador no servidor
             texto = (
-                f"{usuario_imune.mention}, seu personagem imune **{personagem_nome} ({dados_p['origem']})** "
-                f"foi pego por **{usuario_nome}**! 💖"
+                f"⚠️ {usuario_imune.mention}, seu personagem imune **{personagem_nome} ({dados_p['origem']})** "
+                f"se casou com **{usuario_nome}**! "
             )
 
         await canal.send(texto)
@@ -490,6 +499,7 @@ async def on_message(message: discord.Message):
     del imunes[guild_id][user_id]
     salvar_json(ARQUIVO_IMUNES, imunes)
     definir_cooldown(user_id)
+
 
 
 
