@@ -447,7 +447,6 @@ async def on_message(message: discord.Message):
     imunes = carregar_json(ARQUIVO_IMUNES)
     guild_id = str(message.guild.id)
     if guild_id not in imunes:
-        await bot.process_commands(message)
         return
 
     personagem_encontrado = None
@@ -456,14 +455,12 @@ async def on_message(message: discord.Message):
             personagem_encontrado = (uid, d)
             break
     if not personagem_encontrado:
-        await bot.process_commands(message)
         return
 
     user_id, dados_p = personagem_encontrado
     config = carregar_json(ARQUIVO_CONFIG)
     canal_id = config.get(str(message.guild.id))
     if not canal_id:
-        await bot.process_commands(message)
         return
 
     canal = message.guild.get_channel(canal_id)
@@ -476,7 +473,6 @@ async def on_message(message: discord.Message):
     salvar_json(ARQUIVO_IMUNES, imunes)
     definir_cooldown(user_id)
 
-    await bot.process_commands(message)
 
 # === LOOP DE VERIFICAÇÃO ===
 @tasks.loop(hours=1)
