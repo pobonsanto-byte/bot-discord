@@ -483,13 +483,13 @@ async def on_message(message: discord.Message):
         elif pegador:
             # Outra pessoa pegou o personagem
             texto = (
-                f"⚠️ {usuario_imune.mention}, seu personagem imune **{personagem_nome} ({dados_p['origem']})** "
+                f" {usuario_imune.mention}, seu personagem imune **{personagem_nome} ({dados_p['origem']})** "
                 f"se casou com {pegador.mention}! "
             )
         else:
             # Não achou o pegador no servidor
             texto = (
-                f"⚠️ {usuario_imune.mention}, seu personagem imune **{personagem_nome} ({dados_p['origem']})** "
+                f" {usuario_imune.mention}, seu personagem imune **{personagem_nome} ({dados_p['origem']})** "
                 f"se casou com **{usuario_nome}**! "
             )
 
