@@ -1,4 +1,4 @@
-import discord
+Fimport discord
 from discord import app_commands
 from discord.ext import tasks
 from datetime import datetime, timedelta
@@ -442,7 +442,6 @@ async def on_message(message: discord.Message):
     if not m:
         return
 
-
     usuario_nome, personagem_nome = m.group(1).strip(), m.group(2).strip()
     imunes = carregar_json(ARQUIVO_IMUNES)
     guild_id = str(message.guild.id)
@@ -466,12 +465,32 @@ async def on_message(message: discord.Message):
     canal = message.guild.get_channel(canal_id)
     if canal:
         usuario_imune = message.guild.get_member(int(user_id))
-        texto = f"{usuario_imune.mention}, seu personagem imune **{personagem_nome} ({dados_p['origem']})** foi pego por **{usuario_nome}**!"
+
+        # Tenta achar quem pegou o personagem (usuário que casou)
+        pegador = discord.utils.find(
+            lambda m: normalizar_texto(m.display_name) == normalizar_texto(usuario_nome)
+            or normalizar_texto(m.name) == normalizar_texto(usuario_nome),
+            message.guild.members
+        )
+
+        if pegador:
+            texto = (
+                f"{usuario_imune.mention}, seu personagem imune **{personagem_nome} ({dados_p['origem']})** "
+                f"foi pego por {pegador.mention}! 💖"
+            )
+        else:
+            texto = (
+                f"{usuario_imune.mention}, seu personagem imune **{personagem_nome} ({dados_p['origem']})** "
+                f"foi pego por **{usuario_nome}**! 💖"
+            )
+
         await canal.send(texto)
 
+    # Remove a imunidade e aplica cooldown
     del imunes[guild_id][user_id]
     salvar_json(ARQUIVO_IMUNES, imunes)
     definir_cooldown(user_id)
+
 
 
 # === LOOP DE VERIFICAÇÃO ===
