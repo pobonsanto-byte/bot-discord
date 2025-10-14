@@ -506,7 +506,7 @@ async def on_message(message: discord.Message):
 
     # ✅ Novo aviso de remoção
     await canal.send(
-        f"🔓 A imunidade de **{dados_p['personagem']} ({dados_p['origem']})** foi removida automaticamente."
+        f"🔓 A imunidade de **{dados_p['personagem']} ({dados_p['origem']})** foi removida."
     )
 
 
