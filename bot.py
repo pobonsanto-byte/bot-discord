@@ -164,6 +164,7 @@ class ImuneBot(discord.Client):
         await self.tree.sync()
         verificar_imunidades.start()
         verificar_youtube.start()
+        verificar_cooldowns.start()
 
 bot = ImuneBot()
 
@@ -517,6 +518,53 @@ async def on_message(message: discord.Message):
 @tasks.loop(hours=1)
 async def verificar_imunidades():
     print(f"⏳ Verificação ({agora_brasil().strftime('%d/%m/%Y %H:%M:%S')})")
+
+# === LOOP DE VERIFICAÇÃO DE COOLDOWN ===
+@tasks.loop(minutes=30)
+async def verificar_cooldowns():
+    """Verifica se algum cooldown expirou e avisa o usuário."""
+    cooldowns = carregar_json(ARQUIVO_COOLDOWN)
+    config = carregar_json(ARQUIVO_CONFIG)
+    agora = agora_brasil()
+
+    expirados = []
+
+    for user_id, expira_str in cooldowns.items():
+        try:
+            expira = datetime.strptime(expira_str, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+
+        if agora >= expira:
+            expirados.append(user_id)
+
+    if not expirados:
+        return
+
+    for user_id in expirados:
+        del cooldowns[user_id]  # Remove o cooldown expirado
+
+        # Procura o usuário em todos os servidores do bot
+        for guild in bot.guilds:
+            membro = guild.get_member(int(user_id))
+            if not membro:
+                continue
+
+            # Encontra o canal configurado para imunidades
+            canal_id = config.get(str(guild.id))
+            canal = guild.get_channel(canal_id) if canal_id else None
+
+            # Envia a notificação
+            if canal:
+                await canal.send(f"✅ {membro.mention}, seu cooldown acabou! Você já pode usar `/imune_add` novamente.")
+            else:
+                try:
+                    await membro.send("✅ Seu cooldown acabou! Você já pode usar `/imune_add` novamente.")
+                except:
+                    pass
+
+    salvar_json(ARQUIVO_COOLDOWN, cooldowns)
+
 
 # === LOOP YOUTUBE ===
 @tasks.loop(minutes=5)
