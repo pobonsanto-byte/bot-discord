@@ -419,10 +419,11 @@ async def on_message(message: discord.Message):
                 if personagem:
                     imunes = carregar_json(ARQUIVO_IMUNES)
                     guild_id = str(message.guild.id)
+                    personagem_normalizado = normalizar_texto(personagem)
 
                     if guild_id in imunes:
                         for user_id, dados in imunes[guild_id].items():
-                            if dados["personagem"].strip().lower() == personagem.strip().lower():
+                            if normalizar_texto(dados["personagem"]) == personagem_normalizado:
                                 config = carregar_json(ARQUIVO_CONFIG)
                                 canal_id = config.get(str(message.guild.id))
 
@@ -432,11 +433,11 @@ async def on_message(message: discord.Message):
                                         usuario = message.guild.get_member(int(user_id))
                                         if usuario:
                                             await canal.send(
-                                                f"⚠️ {usuario.mention}, seu personagem imune **{personagem} ({dados['origem']})** apareceu no roll da Mudae!"
+                                                f"⚠️ {usuario.mention}, seu personagem imune **{dados['personagem']} ({dados['origem']})** apareceu no roll da Mudae!"
                                             )
-                                break  # Para o loop assim que encontrar o personagem
+                                break  # Encerra o loop assim que encontrar o personagem
 
-    # 💖 Evento de casamento da Mudae
+    # === EVENTO DE CASAMENTO DA MUDAE ===
     padrao = r"💖\s*(.*?)\s*e\s*(.*?)\s*agora são casados!\s*💖"
     m = re.search(padrao, message.content)
     if not m:
@@ -448,11 +449,15 @@ async def on_message(message: discord.Message):
     if guild_id not in imunes:
         return
 
+    personagem_normalizado = normalizar_texto(personagem_nome)
     personagem_encontrado = None
+
+    # Procura o personagem imune independentemente de acento, espaços ou maiúsculas
     for uid, d in imunes[guild_id].items():
-        if d["personagem"].strip().lower() == personagem_nome.lower():
+        if normalizar_texto(d["personagem"]) == personagem_normalizado:
             personagem_encontrado = (uid, d)
             break
+
     if not personagem_encontrado:
         return
 
@@ -463,42 +468,47 @@ async def on_message(message: discord.Message):
         return
 
     canal = message.guild.get_channel(canal_id)
-    if canal:
-        usuario_imune = message.guild.get_member(int(user_id))
+    if not canal:
+        return
 
-        # Tenta achar quem pegou o personagem (usuário que casou)
-        pegador = discord.utils.find(
-            lambda m: normalizar_texto(m.display_name) == normalizar_texto(usuario_nome)
-            or normalizar_texto(m.name) == normalizar_texto(usuario_nome),
-            message.guild.members
+    usuario_imune = message.guild.get_member(int(user_id))
+
+    # Tenta identificar quem casou com o personagem
+    pegador = discord.utils.find(
+        lambda m: normalizar_texto(m.display_name) == normalizar_texto(usuario_nome)
+        or normalizar_texto(m.name) == normalizar_texto(usuario_nome),
+        message.guild.members
+    )
+
+    # === Define a mensagem de aviso ===
+    if pegador and pegador.id == usuario_imune.id:
+        texto = (
+            f"💖 {usuario_imune.mention}, seu personagem imune **{dados_p['personagem']} ({dados_p['origem']})** "
+            f"se casou com você!"
+        )
+    elif pegador:
+        texto = (
+            f" {usuario_imune.mention}, seu personagem imune **{dados_p['personagem']} ({dados_p['origem']})** "
+            f"se casou com {pegador.mention}!"
+        )
+    else:
+        texto = (
+            f" {usuario_imune.mention}, seu personagem imune **{dados_p['personagem']} ({dados_p['origem']})** "
+            f"se casou com **{usuario_nome}**!"
         )
 
-        # --- Define o texto da notificação ---
-        if pegador and pegador.id == usuario_imune.id:
-            # O próprio dono casou com seu personagem imune
-            texto = (
-                f"💖 {usuario_imune.mention}, seu personagem imune **{personagem_nome} ({dados_p['origem']})** "
-                f"se casou com você! "
-            )
-        elif pegador:
-            # Outra pessoa pegou o personagem
-            texto = (
-                f" {usuario_imune.mention}, seu personagem imune **{personagem_nome} ({dados_p['origem']})** "
-                f"se casou com {pegador.mention}! "
-            )
-        else:
-            # Não achou o pegador no servidor
-            texto = (
-                f" {usuario_imune.mention}, seu personagem imune **{personagem_nome} ({dados_p['origem']})** "
-                f"se casou com **{usuario_nome}**! "
-            )
+    await canal.send(texto)
 
-        await canal.send(texto)
-
-    # Remove a imunidade e aplica cooldown
+    # === Remove a imunidade e aplica cooldown ===
     del imunes[guild_id][user_id]
     salvar_json(ARQUIVO_IMUNES, imunes)
     definir_cooldown(user_id)
+
+    # ✅ Novo aviso de remoção
+    await canal.send(
+        f"🔓 A imunidade de **{dados_p['personagem']} ({dados_p['origem']})** foi removida automaticamente."
+    )
+
 
 
 
