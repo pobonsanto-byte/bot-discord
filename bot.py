@@ -522,46 +522,68 @@ async def verificar_imunidades():
 # === LOOP DE VERIFICAÇÃO DE COOLDOWN ===
 @tasks.loop(minutes=30)
 async def verificar_cooldowns():
-    """Verifica se algum cooldown expirou e avisa o usuário."""
+    """Verifica se algum cooldown expirou e avisa o usuário apenas uma vez."""
     cooldowns = carregar_json(ARQUIVO_COOLDOWN)
     config = carregar_json(ARQUIVO_CONFIG)
     agora = agora_brasil()
 
     expirados = []
 
-    for user_id, expira_str in cooldowns.items():
-        try:
-            expira = datetime.strptime(expira_str, "%Y-%m-%d %H:%M:%S")
-        except ValueError:
-            continue
+    for user_id, data in cooldowns.items():
+        # O JSON pode ter apenas uma string ou um dicionário
+        if isinstance(data, str):
+            try:
+                expira = datetime.strptime(data, "%Y-%m-%d %H:%M:%S")
+                avisado = False
+            except ValueError:
+                continue
+        else:
+            expira_str = data.get("expira")
+            avisado = data.get("avisado", False)
+            try:
+                expira = datetime.strptime(expira_str, "%Y-%m-%d %H:%M:%S")
+            except:
+                continue
 
-        if agora >= expira:
+        # Se o cooldown expirou e o aviso ainda não foi enviado
+        if agora >= expira and not avisado:
             expirados.append(user_id)
 
-    if not expirados:
-        return
-
     for user_id in expirados:
-        del cooldowns[user_id]  # Remove o cooldown expirado
+        user_id_int = int(user_id)
+        aviso_enviado = False
 
-        # Procura o usuário em todos os servidores do bot
+        # Procura o membro em todos os servidores
         for guild in bot.guilds:
-            membro = guild.get_member(int(user_id))
+            membro = guild.get_member(user_id_int)
             if not membro:
                 continue
 
-            # Encontra o canal configurado para imunidades
             canal_id = config.get(str(guild.id))
             canal = guild.get_channel(canal_id) if canal_id else None
 
-            # Envia a notificação
-            if canal:
-                await canal.send(f"✅ {membro.mention}, seu cooldown acabou! Você já pode usar `/imune_add` novamente.")
+            try:
+                if canal:
+                    await canal.send(f" {membro.mention}, seu cooldown acabou! Você já pode usar `/imune_add` novamente.")
+                else:
+                    await membro.send(" Seu cooldown acabou! Você já pode usar `/imune_add` novamente.")
+                aviso_enviado = True
+                break
+            except:
+                continue
+
+        # Marca como avisado (para não enviar de novo)
+        if user_id in cooldowns:
+            if isinstance(cooldowns[user_id], str):
+                cooldowns[user_id] = {"expira": cooldowns[user_id], "avisado": aviso_enviado}
             else:
-                try:
-                    await membro.send("✅ Seu cooldown acabou! Você já pode usar `/imune_add` novamente.")
-                except:
-                    pass
+                cooldowns[user_id]["avisado"] = aviso_enviado
+
+    # Remove cooldowns expirados que já foram avisados
+    cooldowns = {
+        uid: data for uid, data in cooldowns.items()
+        if isinstance(data, dict) and not data.get("avisado", False)
+    }
 
     salvar_json(ARQUIVO_COOLDOWN, cooldowns)
 
