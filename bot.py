@@ -511,38 +511,29 @@ async def on_message(message):
     # === EVENTO DE CASAMENTO DA MUDAE VIA EMBED ===
 @bot.event
 async def on_message_edit(before, after):
+    # Só processa mensagens da Mudae
     if after.author.bot and after.author.name.lower() == "mudae" and after.embeds:
-        embed = after.embeds[0]
+        imunes = carregar_json(ARQUIVO_IMUNES)  # ⚠️ IMPORTANTE: carregar aqui
+        guild_id = str(after.guild.id)
+        if guild_id not in imunes:
+            return
 
-        # Só processa embeds de personagens que têm "Pertence a"
+        embed = after.embeds[0]
         if embed.description and "Pertence a" in embed.description:
-            # Extrai o dono do personagem
             m = re.search(r"Pertence a (\S+)", embed.description)
             if not m:
                 return
             dono_nome = m.group(1).strip()
-
-            # Nome do personagem
             personagem = embed.author.name if embed.author and embed.author.name else embed.title
             if not personagem:
                 return
 
-            # Normaliza para comparar
             personagem_normalizado = normalizar_texto(personagem)
-
-            # Carrega imunidades
-            imunes = carregar_json(ARQUIVO_IMUNES)
-            guild_id = str(after.guild.id)
-            if guild_id not in imunes:
-                return
-
-            # Procura se o personagem é imune
             personagem_encontrado = None
             for uid, dados in imunes[guild_id].items():
                 if normalizar_texto(dados["personagem"]) == personagem_normalizado:
                     personagem_encontrado = (uid, dados)
                     break
-
             if not personagem_encontrado:
                 return
 
@@ -550,36 +541,23 @@ async def on_message_edit(before, after):
             canal_id = carregar_json(ARQUIVO_CONFIG).get(guild_id)
             if not canal_id:
                 return
-
             canal = after.guild.get_channel(canal_id)
             if not canal:
                 return
 
             usuario_imune = after.guild.get_member(int(user_id))
-
-            # Tenta identificar quem pegou/casou com o personagem
             pegador = discord.utils.find(
                 lambda m: normalizar_texto(m.name) == normalizar_texto(dono_nome)
                           or normalizar_texto(m.display_name) == normalizar_texto(dono_nome),
                 after.guild.members
             )
 
-            # Define a mensagem
             if pegador and pegador.id == usuario_imune.id:
-                texto = (
-                    f"💖 {usuario_imune.mention}, seu personagem imune **{dados_p['personagem']} ({dados_p['origem']})** "
-                    f"se casou com você!"
-                )
+                texto = f"💖 {usuario_imune.mention}, seu personagem imune **{dados_p['personagem']} ({dados_p['origem']})** se casou com você!"
             elif pegador:
-                texto = (
-                    f" {usuario_imune.mention}, seu personagem imune **{dados_p['personagem']} ({dados_p['origem']})** "
-                    f"se casou com {pegador.mention}!"
-                )
+                texto = f"{usuario_imune.mention}, seu personagem imune **{dados_p['personagem']} ({dados_p['origem']})** se casou com {pegador.mention}!"
             else:
-                texto = (
-                    f" {usuario_imune.mention}, seu personagem imune **{dados_p['personagem']} ({dados_p['origem']})** "
-                    f"se casou com **{dono_nome}**!"
-                )
+                texto = f"{usuario_imune.mention}, seu personagem imune **{dados_p['personagem']} ({dados_p['origem']})** se casou com **{dono_nome}**!"
 
             await canal.send(texto)
 
@@ -587,9 +565,8 @@ async def on_message_edit(before, after):
             del imunes[guild_id][user_id]
             salvar_json(ARQUIVO_IMUNES, imunes)
             definir_cooldown(user_id)
-            await canal.send(
-                f"🔓 A imunidade de **{dados_p['personagem']} ({dados_p['origem']})** foi removida."
-            )
+            await canal.send(f"🔓 A imunidade de **{dados_p['personagem']} ({dados_p['origem']})** foi removida.")
+
 
 
     # === Remove a imunidade e aplica cooldown ===
