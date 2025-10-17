@@ -98,35 +98,48 @@ async def verificar_inatividade():
         remover_lista = []
 
         for user_id, dados in imunes[guild_id].items():
-            ultima = atividade.get(user_id)
-            if not ultima:
-                remover_lista.append(user_id)
+            ultima_str = atividade.get(user_id)
+            if not ultima_str:
+                # Usuário nunca rolou, não remove imediatamente
                 continue
 
             try:
-                ultima_data = datetime.strptime(ultima, "%Y-%m-%d %H:%M:%S")
-            except:
+                ultima_data = datetime.strptime(ultima_str, "%Y-%m-%d %H:%M:%S")
+            except Exception as e:
+                print(f"⚠️ Erro ao ler data de {user_id}: {e}")
                 continue
 
+            # Verifica se passou o limite de inatividade
             if (agora - ultima_data).days >= DIAS_INATIVIDADE:
                 remover_lista.append(user_id)
 
         for user_id in remover_lista:
+            # Pega o membro do guild
             usuario = guild.get_member(int(user_id))
+            if not usuario:
+                usuario_mention = "Usuário desconhecido"
+            else:
+                usuario_mention = usuario.mention
+
+            # Pega personagem e origem antes de remover
             personagem = imunes[guild_id][user_id]["personagem"]
             origem = imunes[guild_id][user_id]["origem"]
+
+            # Remove imunidade
             del imunes[guild_id][user_id]
             salvar_json(ARQUIVO_IMUNES, imunes)
-            # ✅ Aplica cooldown de 7 dias por inatividade
+
+            # Aplica cooldown de 7 dias por inatividade
             definir_cooldown(user_id, dias=7)
 
+            # Envia aviso no canal configurado
             if canal:
                 await canal.send(
-                    f"⚠️ {usuario.mention if usuario else 'Usuário desconhecido'} "
-                    f"perdeu a imunidade de **{personagem} ({origem})** por inatividade "
-                    f"(sem roletar há {DIAS_INATIVIDADE}+ dias). "
+                    f"⚠️ {usuario_mention} perdeu a imunidade de **{personagem} ({origem})** "
+                    f"por inatividade (sem roletar há {DIAS_INATIVIDADE}+ dias). "
                     f"Você não poderá adicionar outro personagem imune por 7 dias."
                 )
+
 
 # === COOLDOWN ===
 def esta_em_cooldown(user_id):
@@ -362,6 +375,28 @@ async def imune_remover(interaction: discord.Interaction, usuario: discord.Membe
     salvar_json(ARQUIVO_IMUNES, imunes)
     await interaction.response.send_message(f"🗑️ {interaction.user.mention} removeu a imunidade de **{personagem} ({origem})** de {usuario.mention}.")
 
+@bot.tree.command(name="resetar_cooldown", description="Zera o cooldown de um usuário específico.")
+@app_commands.describe(usuario="Usuário que terá o cooldown resetado")
+@app_commands.checks.has_permissions(administrator=True)
+async def resetar_cooldown(interaction: discord.Interaction, usuario: discord.Member):
+    cooldowns = carregar_json(ARQUIVO_COOLDOWN)
+    user_id = str(usuario.id)
+
+    if user_id not in cooldowns:
+        await interaction.response.send_message(
+            f"⚙️ {usuario.mention} não possui cooldown ativo.",
+            ephemeral=True
+        )
+        return
+
+    # Remove cooldown
+    del cooldowns[user_id]
+    salvar_json(ARQUIVO_COOLDOWN, cooldowns)
+
+    await interaction.response.send_message(
+        f"✅ Cooldown de {usuario.mention} foi resetado com sucesso!"
+    )
+
 # === COMANDOS PADRÃO ===
 @bot.tree.command(name="imune_add", description="Adiciona um personagem imune (1 por jogador).")
 @canal_imunidade()
@@ -459,13 +494,17 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    # Aqui o bot detecta rolagens (exemplo: $w, $m, etc.)
-    if message.content.startswith(("$w", "$wg", "$h", "$hg", "$wa","$ha", "$tu",)):
-        atividade = carregar_atividade()
-        atividade[str(message.author.id)] = agora_brasil().strftime("%Y-%m-%d %H:%M:%S")
-        salvar_atividade(atividade)
+    # Lista de comandos de roll que contam como atividade
+    roll_prefixes = ("$w", "$wg", "$h", "$hg", "$wa", "$ha", "$tu")
 
-    
+    # Atualiza atividade apenas se for um roll válido
+    if message.content.startswith(roll_prefixes):
+        try:
+            atividade = carregar_atividade()
+            atividade[str(message.author.id)] = agora_brasil().strftime("%Y-%m-%d %H:%M:%S")
+            salvar_atividade(atividade)
+        except Exception as e:
+            print(f"⚠️ Erro ao atualizar atividade de {message.author.id}: {e}")
 
     # === DETECTOR DE ROLLS DA MUDAE ===
     if message.author.bot and message.author.name.lower() == "mudae":
@@ -474,19 +513,11 @@ async def on_message(message):
             personagem = ""
             origem = ""
 
-            # Só processa se for o embed de roll (aquele com "Reaja com qualquer emoji para casar!")
+            # Processa apenas se for embed de roll
             if embed.description and "Reaja com qualquer emoji para casar!" in embed.description:
-                # Extrai nome do personagem
-                if embed.author and embed.author.name:
-                    personagem = embed.author.name
-                elif embed.title:
-                    personagem = embed.title
+                personagem = embed.author.name if embed.author and embed.author.name else embed.title
+                origem = embed.description or ""
 
-                # Extrai origem (anime/jogo)
-                if embed.description:
-                    origem = embed.description
-
-                # Verifica se o personagem está na lista de imunidades
                 if personagem:
                     imunes = carregar_json(ARQUIVO_IMUNES)
                     guild_id = str(message.guild.id)
@@ -496,17 +527,17 @@ async def on_message(message):
                         for user_id, dados in imunes[guild_id].items():
                             if normalizar_texto(dados["personagem"]) == personagem_normalizado:
                                 config = carregar_json(ARQUIVO_CONFIG)
-                                canal_id = config.get(str(message.guild.id))
+                                canal_id = config.get(guild_id)
+                                canal = message.guild.get_channel(canal_id) if canal_id else None
+                                usuario = message.guild.get_member(int(user_id)) if canal else None
 
-                                if canal_id:
-                                    canal = message.guild.get_channel(canal_id)
-                                    if canal:
-                                        usuario = message.guild.get_member(int(user_id))
-                                        if usuario:
-                                            await canal.send(
-                                                f"⚠️ {usuario.mention}, seu personagem imune **{dados['personagem']} ({dados['origem']})** apareceu no roll da Mudae!"
-                                            )
-                                break  # Encerra o loop assim que encontrar o personagem
+                                if canal and usuario:
+                                    await canal.send(
+                                        f"⚠️ {usuario.mention}, seu personagem imune "
+                                        f"**{dados['personagem']} ({dados['origem']})** apareceu no roll da Mudae!"
+                                    )
+                                break  # só notifica uma vez
+
 
     # === EVENTO DE CASAMENTO DA MUDAE VIA EMBED ===
 @bot.event
