@@ -466,7 +466,7 @@ async def on_message(message):
         atividade[str(message.author.id)] = agora_brasil().strftime("%Y-%m-%d %H:%M:%S")
         salvar_atividade(atividade)
 
-    await bot.process_commands(message)
+    
 
     # === DETECTOR DE ROLLS DA MUDAE ===
     if message.author.bot and message.author.name.lower() == "mudae":
