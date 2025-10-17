@@ -20,6 +20,8 @@ ARQUIVO_IMUNES = "imunidades.json"
 ARQUIVO_CONFIG = "config.json"
 ARQUIVO_COOLDOWN = "cooldowns.json"
 ARQUIVO_YOUTUBE = "youtube.json"
+ARQUIVO_ATIVIDADE = "atividade.json"
+DIAS_INATIVIDADE = 3  # 🕒 define quantos dias sem roletar remove imunidade
 
 # === CONFIG GITHUB ===
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
@@ -66,6 +68,66 @@ def salvar_json(nome_arquivo, dados):
     r = requests.put(url, headers=headers, json=data)
     if r.status_code not in [200, 201]:
         print(f"❌ Erro ao salvar {nome_arquivo}: {r.status_code} - {r.text}")
+
+# 🆕 NOVO BLOCO – funções e loop de verificação de inatividade
+def carregar_atividade():
+    if not os.path.exists(ARQUIVO_ATIVIDADE):
+        return {}
+    with open(ARQUIVO_ATIVIDADE, "r", encoding="utf-8") as f:
+        try:
+            return json.load(f)
+        except:
+            return {}
+
+
+def salvar_atividade(dados):
+    with open(ARQUIVO_ATIVIDADE, "w", encoding="utf-8") as f:
+        json.dump(dados, f, ensure_ascii=False, indent=4)
+
+
+@tasks.loop(hours=1)
+async def verificar_inatividade():
+    agora = agora_brasil()
+    imunes = carregar_json(ARQUIVO_IMUNES)
+    atividade = carregar_atividade()
+    config = carregar_json(ARQUIVO_CONFIG)
+
+    for guild in bot.guilds:
+        guild_id = str(guild.id)
+        if guild_id not in imunes:
+            continue
+
+        canal_id = config.get(guild_id)
+        canal = guild.get_channel(canal_id) if canal_id else None
+        remover_lista = []
+
+        for user_id, dados in imunes[guild_id].items():
+            ultima = atividade.get(user_id)
+            if not ultima:
+                remover_lista.append(user_id)
+                continue
+
+            try:
+                ultima_data = datetime.strptime(ultima, "%Y-%m-%d %H:%M:%S")
+            except:
+                continue
+
+            if (agora - ultima_data).days >= DIAS_INATIVIDADE:
+                remover_lista.append(user_id)
+
+        for user_id in remover_lista:
+            usuario = guild.get_member(int(user_id))
+            personagem = imunes[guild_id][user_id]["personagem"]
+            origem = imunes[guild_id][user_id]["origem"]
+            del imunes[guild_id][user_id]
+            salvar_json(ARQUIVO_IMUNES, imunes)
+
+            if canal:
+                await canal.send(
+                    f"⚠️ {usuario.mention if usuario else 'Usuário desconhecido'} "
+                    f"perdeu a imunidade de **{personagem} ({origem})** por inatividade "
+                    f"(sem roletar há {DIAS_INATIVIDADE}+ dias)."
+                )
 
 # === COOLDOWN ===
 def esta_em_cooldown(user_id):
@@ -165,6 +227,7 @@ class ImuneBot(discord.Client):
         verificar_imunidades.start()
         verificar_youtube.start()
         verificar_cooldowns.start()
+        verificar_inatividade.start()
 
 bot = ImuneBot()
 
@@ -393,9 +456,17 @@ async def imune_status(interaction: discord.Interaction):
 
 # === EVENTOS ===
 @bot.event
-async def on_message(message: discord.Message):
-    if message.author == bot.user:
+async def on_message(message):
+    if message.author.bot:
         return
+
+    # Aqui o bot detecta rolagens (exemplo: $w, $m, etc.)
+    if message.content.startswith(("$w", "$wg", "$h", "$hg", "$wa","$ha", "$tu",)):
+        atividade = carregar_atividade()
+        atividade[str(message.author.id)] = agora_brasil().strftime("%Y-%m-%d %H:%M:%S")
+        salvar_atividade(atividade)
+
+    await bot.process_commands(message)
 
     # === DETECTOR DE ROLLS DA MUDAE ===
     if message.author.bot and message.author.name.lower() == "mudae":
