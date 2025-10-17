@@ -112,11 +112,23 @@ async def verificar_inatividade():
                 remover_lista.append(user_id)
 
         for user_id in remover_lista:
-            usuario = guild.get_member(int(user_id))
-            personagem = imunes[guild_id][user_id]["personagem"]
-            origem = imunes[guild_id][user_id]["origem"]
-            del imunes[guild_id][user_id]
-            salvar_json(ARQUIVO_IMUNES, imunes)
+    usuario = guild.get_member(int(user_id))
+    personagem = imunes[guild_id][user_id]["personagem"]
+    origem = imunes[guild_id][user_id]["origem"]
+    del imunes[guild_id][user_id]
+    salvar_json(ARQUIVO_IMUNES, imunes)
+
+    # ✅ Aplica cooldown de 7 dias por inatividade
+    definir_cooldown(user_id, dias=7)
+
+    if canal:
+        await canal.send(
+            f"⚠️ {usuario.mention if usuario else 'Usuário desconhecido'} "
+            f"perdeu a imunidade de **{personagem} ({origem})** por inatividade "
+            f"(sem roletar há {DIAS_INATIVIDADE}+ dias). "
+            f"Você não poderá adicionar outro personagem imune por 7 dias."
+        )
+
 
             if canal:
                 await canal.send(
