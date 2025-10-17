@@ -71,18 +71,14 @@ def salvar_json(nome_arquivo, dados):
 
 # 🆕 NOVO BLOCO – funções e loop de verificação de inatividade
 def carregar_atividade():
-    if not os.path.exists(ARQUIVO_ATIVIDADE):
-        return {}
-    with open(ARQUIVO_ATIVIDADE, "r", encoding="utf-8") as f:
-        try:
-            return json.load(f)
-        except:
-            return {}
-
+    """Carrega o arquivo de atividade do GitHub."""
+    dados = carregar_json(ARQUIVO_ATIVIDADE)
+    return dados if dados else {}
 
 def salvar_atividade(dados):
-    with open(ARQUIVO_ATIVIDADE, "w", encoding="utf-8") as f:
-        json.dump(dados, f, ensure_ascii=False, indent=4)
+    """Salva o arquivo de atividade no GitHub."""
+    salvar_json(ARQUIVO_ATIVIDADE, dados)
+
 
 
 @tasks.loop(hours=1)
