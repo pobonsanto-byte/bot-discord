@@ -600,20 +600,6 @@ async def on_message_edit(before, after):
 
 
 
-    # === Remove a imunidade e aplica cooldown ===
-    del imunes[guild_id][user_id]
-    salvar_json(ARQUIVO_IMUNES, imunes)
-    definir_cooldown(user_id)
-
-    # ✅ Novo aviso de remoção
-    await canal.send(
-        f"🔓 A imunidade de **{dados_p['personagem']} ({dados_p['origem']})** foi removida."
-    )
-
-
-
-
-
 # === LOOP DE VERIFICAÇÃO ===
 @tasks.loop(hours=1)
 async def verificar_imunidades():
