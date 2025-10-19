@@ -567,11 +567,10 @@ async def on_message(message):
 
         # === NOVO DETECTOR DE $IM DA MUDAE ===
         elif (embed.author and embed.author.name) and (embed.footer and embed.footer.text and "Pertence a" in embed.footer.text):
-            personagem = embed.author.name.strip() or embed.title.strip()
-            descricao = embed.description or ""
+            personagem = embed.author.name.strip()  # nome do personagem
             footer_text = embed.footer.text.strip()
 
-            # Extrai nome do dono (usuário que possui o personagem)
+            # Extrai nome do dono que aparece no rodapé
             match = re.search(r"Pertence a ([^~\n_]+)", footer_text)
             if not match:
                 return
@@ -583,40 +582,34 @@ async def on_message(message):
                 return
 
             personagem_normalizado = normalizar_texto(personagem)
-            encontrado = False
 
-            for user_id, dados in list(imunes[guild_id].items()):
+            for user_id, dados in list(imunes[guild_id].items()):  # list() pra poder deletar com segurança
                 if normalizar_texto(dados["personagem"]) == personagem_normalizado:
-                    encontrado = True
                     usuario_imune = message.guild.get_member(int(user_id))
                     if not usuario_imune:
                         continue
 
-                    # === Remove o personagem da lista de imunes ===
+                    # Remove do arquivo de imunes
                     del imunes[guild_id][user_id]
-                    salvar_json(imunes, ARQUIVO_IMUNES)
+                    salvar_json(ARQUIVO_IMUNES, imunes)
 
+                    # Define cooldown de 3 dias
+                    definir_cooldown(user_id, dias=3)
+
+                    # Envia aviso
                     config = carregar_json(ARQUIVO_CONFIG)
                     canal_id = config.get(guild_id)
                     canal = message.guild.get_channel(canal_id) if canal_id else None
-
                     if canal:
                         await canal.send(
                             f"⚠️ {usuario_imune.mention}, o personagem imune "
-                            f"**{dados['personagem']} ({dados['origem']})** foi pego. "
+                            f"**{dados['personagem']} ({dados['origem']})** foi pego "
                             f"🕒 Você agora está em cooldown de **3 dias** para usar `/imune_add` novamente."
                         )
 
-                    definir_cooldown(user_id, dias=3)
-                    print(f"[IM DETECTADO] {dados['personagem']} removido da imunidade de {usuario_imune}.")
-                    print(f"[COOLDOWN] {usuario_imune} agora está em cooldown de 3 dias.")
-                    break  # processa só o primeiro personagem
+                    print(f"[IM REMOVIDO] {dados['personagem']} ({dados['origem']}) removido da lista de {usuario_imune}.")
+                    break  # interrompe após o primeiro match
 
-            if not encontrado:
-                print(f"[IGNORADO] Nenhum personagem imune correspondente encontrado para '{personagem}'.")
-
-    # Permite que outros comandos funcionem normalmente
-    await bot.process_commands(message)
 
 
 
