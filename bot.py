@@ -656,7 +656,7 @@ async def on_message(message: discord.Message):
                 break
 
     # Permite que outros comandos Slash e prefixados funcionem
-    await bot.process_commands(message)
+    return
 
 
     # === EVENTO DE CASAMENTO DA MUDAE VIA EMBED ===
