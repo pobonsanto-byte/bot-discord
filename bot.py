@@ -491,7 +491,7 @@ async def imune_status(interaction: discord.Interaction):
 # === EVENTOS ===
 @bot.event
 async def on_message(message):
-    if message.author.bot:
+    if message.author.bot and message.author.name.lower() == "mudae":
         return
 
     # Lista de comandos de roll que contam como atividade
