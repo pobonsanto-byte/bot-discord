@@ -580,10 +580,6 @@ async def on_message(message):
                         break  # só processa o primeiro match
 
 
-    # Permite que outros comandos funcionem normalmente
-    await bot.process_commands(message)
-
-
 
 
     # === EVENTO DE CASAMENTO DA MUDAE VIA EMBED ===
