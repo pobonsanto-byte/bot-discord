@@ -492,14 +492,19 @@ async def imune_status(interaction: discord.Interaction):
 @bot.event
 async def on_message(message):
     if message.author.bot and message.author.name.lower() == "mudae":
-        if message.content and "Pertence a" in message.content:
-            # Extrai personagem e dono
-            m = re.search(r"(.*?)\nPertence a (\S+)", message.content)
-            if not m:
-                return
-            personagem = m.group(1).strip()
-            dono_nome = m.group(2).strip()
+        personagem = None
+        dono_nome = None
 
+        if message.embeds:
+            embed = message.embeds[0]
+            personagem = embed.title or ""
+            # Procura field com "Pertence a"
+            for field in embed.fields:
+                if "Pertence a" in field.name:
+                    dono_nome = field.value.strip()
+                    break
+
+        if personagem and dono_nome:
             guild_id = str(message.guild.id)
             imunes = carregar_json(ARQUIVO_IMUNES)
             if guild_id not in imunes:
@@ -517,7 +522,7 @@ async def on_message(message):
             user_id, dados_p = personagem_encontrado
             usuario_imune = message.guild.get_member(int(user_id))
 
-            # Confere se quem pegou é diferente de quem imunizou
+            # Confere quem pegou
             pegador = discord.utils.find(
                 lambda m: normalizar_texto(m.name) == normalizar_texto(dono_nome)
                           or normalizar_texto(m.display_name) == normalizar_texto(dono_nome),
@@ -525,17 +530,19 @@ async def on_message(message):
             )
 
             if pegador and pegador.id != usuario_imune.id:
-                definir_cooldown(user_id, dias=3)  # aplica cooldown para quem adicionou
+                definir_cooldown(user_id, dias=3)
                 canal_id = carregar_json(ARQUIVO_CONFIG).get(guild_id)
                 canal = message.guild.get_channel(canal_id) if canal_id else None
                 if canal:
                     await canal.send(
-                        f" {usuario_imune.mention}, seu personagem imune **{dados_p['personagem']} ({dados_p['origem']})** foi retirado da lista . "
+                        f"⚠️ {usuario_imune.mention}, seu personagem imune "
+                        f"**{dados_p['personagem']} ({dados_p['origem']})** foi retirado da lista. "
                         f"Você está em cooldown de 3 dias para adicionar outro personagem imune."
                     )
-                # remove imunidade se quiser, ou mantém dependendo da regra
+                # Remove imunidade se quiser
                 del imunes[guild_id][user_id]
                 salvar_json(ARQUIVO_IMUNES, imunes)
+
 
     
     if message.author.bot:
