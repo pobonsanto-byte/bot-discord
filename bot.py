@@ -145,43 +145,21 @@ async def verificar_inatividade():
 def esta_em_cooldown(user_id):
     cooldowns = carregar_json(ARQUIVO_COOLDOWN)
     agora = agora_brasil()
-    entry = cooldowns.get(str(user_id))
-    if not entry:
+    expira_em_str = cooldowns.get(str(user_id))
+    if not expira_em_str:
         return False
-
-    # Suporta tanto string antiga quanto dict novo
-    if isinstance(entry, str):
-        try:
-            expira_em = datetime.strptime(entry, "%Y-%m-%d %H:%M:%S")
-            avisado = False
-        except Exception:
-            # formato inválido -> remove
-            del cooldowns[str(user_id)]
-            salvar_json(ARQUIVO_COOLDOWN, cooldowns)
-            return False
-    else:
-        try:
-            expira_em = datetime.strptime(entry.get("expira"), "%Y-%m-%d %H:%M:%S")
-            avisado = bool(entry.get("avisado", False))
-        except Exception:
-            del cooldowns[str(user_id)]
-            salvar_json(ARQUIVO_COOLDOWN, cooldowns)
-            return False
-
+    expira_em = datetime.strptime(expira_em_str, "%Y-%m-%d %H:%M:%S")
     if agora >= expira_em:
-        # expirou -> remover
-        if str(user_id) in cooldowns:
-            del cooldowns[str(user_id)]
-            salvar_json(ARQUIVO_COOLDOWN, cooldowns)
+        del cooldowns[str(user_id)]
+        salvar_json(ARQUIVO_COOLDOWN, cooldowns)
         return False
     return True
 
 def definir_cooldown(user_id, dias=3):
     cooldowns = carregar_json(ARQUIVO_COOLDOWN)
     expira_em = agora_brasil() + timedelta(days=dias)
-    cooldowns[str(user_id)] = {"expira": expira_em.strftime("%Y-%m-%d %H:%M:%S"), "avisado": False}
+    cooldowns[str(user_id)] = expira_em.strftime("%Y-%m-%d %H:%M:%S")
     salvar_json(ARQUIVO_COOLDOWN, cooldowns)
-
     
 # === YOUTUBE ===
 CANAL_YOUTUBE = "UCcMSONDJxb18PW5B8cxYdzQ"  # ID do canal
@@ -528,31 +506,6 @@ async def on_message(message):
         except Exception as e:
             print(f"⚠️ Erro ao atualizar atividade de {message.author.id}: {e}")
 
-     # === DETECTOR DE $IM (coloca em cooldown se o personagem for imune) ===
-    if not message.author.bot and message.content.lower().startswith("$im "):
-        partes = message.content.split(" ", 1)
-        if len(partes) > 1:
-            nome_personagem = normalizar_texto(partes[1].strip())
-            imunes = carregar_json(ARQUIVO_IMUNES)
-            guild_id = str(message.guild.id)
-            
-            if guild_id in imunes:
-                for user_id, dados in imunes[guild_id].items():
-                    personagem_imune = normalizar_texto(dados["personagem"])
-                    if nome_personagem == personagem_imune:
-                        # Personagem é imune!
-                        if not esta_em_cooldown(message.author.id):
-                            definir_cooldown(message.author.id)
-                            await message.channel.send(
-                                f"🔒 {message.author.mention}, você foi colocado em cooldown por usar um personagem imune: "
-                                f"**{dados['personagem']} ({dados['origem']})**."
-                            )
-                        else:
-                            await message.channel.send(
-                                f"⚠️ {message.author.mention}, você já está em cooldown!"
-                            )
-                            break
-
     # === DETECTOR DE ROLLS DA MUDAE ===
     if message.author.bot and message.author.name.lower() == "mudae":
         if message.embeds:
@@ -598,17 +551,10 @@ async def on_message_edit(before, after):
 
         embed = after.embeds[0]
         if embed.description and "Pertence a" in embed.description:
-            # Captura tudo após "Pertence a" até nova linha ou final (aceita nomes com espaços)
-            m = re.search(r"Pertence a\s+(.+?)(?:\n|$|\*)", embed.description, flags=re.IGNORECASE)
+            m = re.search(r"Pertence a (\S+)", embed.description)
             if not m:
-                # tenta alternativa: procurar por 'Pertence a' e pegar a próxima palavra/tokens
-                m2 = re.search(r"Pertence a\s+(\S+)", embed.description)
-                if not m2:
-                    return
-                dono_nome = m2.group(1).strip()
-            else:
-                dono_nome = m.group(1).strip()
-
+                return
+            dono_nome = m.group(1).strip()
             personagem = embed.author.name if embed.author and embed.author.name else embed.title
             if not personagem:
                 return
@@ -667,63 +613,65 @@ async def verificar_cooldowns():
     config = carregar_json(ARQUIVO_CONFIG)
     agora = agora_brasil()
 
-    modificou = False
+    expirados = []
 
-    for user_id, data in list(cooldowns.items()):
-        # Normaliza para o formato dict {"expira": "...", "avisado": bool}
+    for user_id, data in cooldowns.items():
+        # O JSON pode ter apenas uma string ou um dicionário
         if isinstance(data, str):
             try:
                 expira = datetime.strptime(data, "%Y-%m-%d %H:%M:%S")
                 avisado = False
-            except Exception:
-                # formato inválido -> remove
-                del cooldowns[user_id]
-                modificou = True
+            except ValueError:
                 continue
         else:
+            expira_str = data.get("expira")
+            avisado = data.get("avisado", False)
             try:
-                expira = datetime.strptime(data.get("expira"), "%Y-%m-%d %H:%M:%S")
-                avisado = bool(data.get("avisado", False))
-            except Exception:
-                del cooldowns[user_id]
-                modificou = True
+                expira = datetime.strptime(expira_str, "%Y-%m-%d %H:%M:%S")
+            except:
                 continue
 
-        # Se expirou e ainda não avisamos -> mandar aviso e marcar avisado
+        # Se o cooldown expirou e o aviso ainda não foi enviado
         if agora >= expira and not avisado:
-            user_id_int = int(user_id)
-            aviso_enviado = False
+            expirados.append(user_id)
 
-            for guild in bot.guilds:
-                membro = guild.get_member(user_id_int)
-                if not membro:
-                    continue
+    for user_id in expirados:
+        user_id_int = int(user_id)
+        aviso_enviado = False
 
-                canal_id = config.get(str(guild.id))
-                canal = guild.get_channel(canal_id) if canal_id else None
+        # Procura o membro em todos os servidores
+        for guild in bot.guilds:
+            membro = guild.get_member(user_id_int)
+            if not membro:
+                continue
 
-                try:
-                    if canal:
-                        await canal.send(f"{membro.mention}, seu cooldown acabou! Você já pode usar `/imune_add` novamente.")
-                    else:
-                        await membro.send("Seu cooldown acabou! Você já pode usar `/imune_add` novamente.")
-                    aviso_enviado = True
-                    break
-                except Exception:
-                    continue
+            canal_id = config.get(str(guild.id))
+            canal = guild.get_channel(canal_id) if canal_id else None
 
-            # marca avisado (mesmo que não tenha conseguido enviar, para evitar loop infinito)
-            cooldowns[user_id] = {"expira": expira.strftime("%Y-%m-%d %H:%M:%S"), "avisado": aviso_enviado}
-            modificou = True
+            try:
+                if canal:
+                    await canal.send(f" {membro.mention}, seu cooldown acabou! Você já pode usar `/imune_add` novamente.")
+                else:
+                    await membro.send(" Seu cooldown acabou! Você já pode usar `/imune_add` novamente.")
+                aviso_enviado = True
+                break
+            except:
+                continue
 
-        # Se expirou e já avisado -> remover
-        if agora >= expira and (isinstance(cooldowns.get(user_id), dict) and cooldowns[user_id].get("avisado", False)):
-            del cooldowns[user_id]
-            modificou = True
+        # Marca como avisado (para não enviar de novo)
+        if user_id in cooldowns:
+            if isinstance(cooldowns[user_id], str):
+                cooldowns[user_id] = {"expira": cooldowns[user_id], "avisado": aviso_enviado}
+            else:
+                cooldowns[user_id]["avisado"] = aviso_enviado
 
-    if modificou:
-        salvar_json(ARQUIVO_COOLDOWN, cooldowns)
+    # Remove cooldowns expirados que já foram avisados
+    cooldowns = {
+        uid: data for uid, data in cooldowns.items()
+        if isinstance(data, dict) and not data.get("avisado", False)
+    }
 
+    salvar_json(ARQUIVO_COOLDOWN, cooldowns)
 
 
 # === LOOP YOUTUBE ===
