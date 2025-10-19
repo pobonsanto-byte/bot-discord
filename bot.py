@@ -398,6 +398,31 @@ async def resetar_cooldown(interaction: discord.Interaction, usuario: discord.Me
     )
 
 # === COMANDOS PADRÃO ===
+@bot.tree.command(name="testar_mudae", description="Testa a leitura da última embed enviada pela Mudae no canal.")
+async def testar_mudae_embed(interaction: discord.Interaction):
+    await interaction.response.defer(thinking=True, ephemeral=False)
+    
+    # Busca as últimas 10 mensagens do canal
+    async for msg in interaction.channel.history(limit=10):
+        if msg.author.bot and msg.author.name.lower() == "mudae" and msg.embeds:
+            embed = msg.embeds[0]
+            titulo = embed.title or "(sem título)"
+            descricao = embed.description or "(sem descrição)"
+            autor = embed.author.name if embed.author and embed.author.name else "(sem autor)"
+            footer = embed.footer.text if embed.footer and embed.footer.text else "(sem footer)"
+            
+            await interaction.followup.send(
+                f"📦 **Embed da Mudae detectada!**\n"
+                f"**Autor:** {autor}\n"
+                f"**Título:** {titulo}\n"
+                f"**Descrição:** {descricao[:900]}\n"
+                f"**Footer:** {footer}",
+                ephemeral=False
+            )
+            return
+
+    await interaction.followup.send("⚠️ Nenhuma embed recente da Mudae encontrada neste canal.", ephemeral=True)
+
 @bot.tree.command(name="imune_add", description="Adiciona um personagem imune (1 por jogador).")
 @canal_imunidade()
 @app_commands.describe(nome_personagem="Nome do personagem", jogo_anime="Nome do jogo/anime")
