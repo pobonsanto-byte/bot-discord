@@ -488,95 +488,23 @@ async def imune_status(interaction: discord.Interaction):
         embed.add_field(name="⏳ Cooldown", value="Nenhum cooldown ativo.", inline=False)
     await interaction.response.send_message(embed=embed)
 
-# === EVENTO DE DETECÇÃO DE MENSAGENS DA MUDAE ===
+# === EVENTOS ===
 @bot.event
 async def on_message(message):
-    # Ignora mensagens que não são da Mudae
-    if not (message.author.bot and message.author.name.lower() == "mudae"):
-        await bot.process_commands(message)
+    if message.author.bot and message.author.name.lower() != "mudae":
         return
 
-    # Garante que há embeds
-    if not message.embeds:
-        await bot.process_commands(message)
-        return
+    # === ATUALIZA ATIVIDADE ===
+    roll_prefixes = ("$w", "$wg", "$h", "$hg", "$wa", "$ha", "$tu")
 
-    embed = message.embeds[0]
-    guild_id = str(message.guild.id)
-    imunes = carregar_json(ARQUIVO_IMUNES)
-    config = carregar_json(ARQUIVO_CONFIG)
-
-    # === 🎲 ROLL NORMAL ===
-    if embed.description and "Reaja com qualquer emoji para casar!" in embed.description:
-        personagem = embed.author.name if embed.author and embed.author.name else embed.title
-        personagem_normalizado = normalizar_texto(personagem)
-
-        if guild_id in imunes:
-            for user_id, dados in imunes[guild_id].items():
-                if normalizar_texto(dados["personagem"]) == personagem_normalizado:
-                    canal_id = config.get(guild_id)
-                    canal = message.guild.get_channel(canal_id) if canal_id else None
-                    usuario = message.guild.get_member(int(user_id)) if canal else None
-
-                    if canal and usuario:
-                        await canal.send(
-                            f" {usuario.mention}, seu personagem imune "
-                            f"**{dados['personagem']} ({dados['origem']})** apareceu em um roll da Mudae!"
-                        )
-
-                        # ❌ Nenhum cooldown aqui — só quando reagirem ao roll
-                    break
-
-    # === 🧠 COMANDO $IM ===
-    else:
-        personagem = embed.title.strip() if embed.title else "Desconhecido"
-        personagem_normalizado = normalizar_texto(personagem)
-
-        # Procura "Pertence a" em qualquer parte do embed (descrição, fields ou footer)
-        pertence_texto = ""
-        if embed.description and "Pertence a" in embed.description:
-            pertence_texto = embed.description
-        elif embed.footer and embed.footer.text and "Pertence a" in embed.footer.text:
-            pertence_texto = embed.footer.text
-        elif embed.fields:
-            for field in embed.fields:
-                if "Pertence a" in (field.name or "") or "Pertence a" in (field.value or ""):
-                    pertence_texto = field.value
-                    break
-
-        # Se for realmente um $im (tem "Pertence a")
-        if pertence_texto:
-            if guild_id in imunes:
-                for user_id, dados in imunes[guild_id].items():
-                    if normalizar_texto(dados["personagem"]) == personagem_normalizado:
-                        canal_id = config.get(guild_id)
-                        canal = message.guild.get_channel(canal_id) if canal_id else None
-                        usuario = message.guild.get_member(int(user_id)) if canal else None
-
-                        if canal and usuario:
-                            await canal.send(
-                                f" {usuario.mention}, seu personagem imune "
-                                f"**{dados['personagem']} ({dados['origem']})** já foi pego!"
-                            )
-
-                            # Aplica cooldown no dono do imune (ex: 3 dias)
-                            definir_cooldown(user_id, dias=3)
-                            print(f"[COOLDOWN APLICADO - $IM] para {usuario}")
-
-                            # Remove imunidade automaticamente
-                            del imunes[guild_id][user_id]
-                            salvar_json(ARQUIVO_IMUNES, imunes)
-
-                            await canal.send(
-                                f"🔓 A imunidade de **{dados['personagem']} ({dados['origem']})** "
-                                f"foi removida."
-                            )
-                        break
-
-    # Continua processando comandos normalmente
-    await bot.process_commands(message)
-
-
+    # Atualiza atividade apenas se for um roll válido
+    if message.content.startswith(roll_prefixes):
+        try:
+            atividade = carregar_atividade()
+            atividade[str(message.author.id)] = agora_brasil().strftime("%Y-%m-%d %H:%M:%S")
+            salvar_atividade(atividade)
+        except Exception as e:
+            print(f"⚠️ Erro ao atualizar atividade de {message.author.id}: {e}")
 
     # === DETECTOR DE ROLLS DA MUDAE ===
     if message.author.bot and message.author.name.lower() == "mudae":
@@ -605,10 +533,54 @@ async def on_message(message):
 
                                 if canal and usuario:
                                     await canal.send(
-                                        f" {usuario.mention}, seu personagem imune "
+                                        f"⚠️ {usuario.mention}, seu personagem imune "
                                         f"**{dados['personagem']} ({dados['origem']})** apareceu no roll da Mudae!"
                                     )
                                 break  # só notifica uma vez
+
+            # === NOVO DETECTOR DE $im (IMUNE CHECK) ===
+            elif embed.title and embed.description and "Pertence a" in embed.description:
+                personagem = embed.title.strip()
+                match = re.search(r"Pertence a ([^~\n]+)", embed.description)
+                if not match:
+                    return
+                dono_nome = match.group(1).strip()
+
+                guild_id = str(message.guild.id)
+                imunes = carregar_json(ARQUIVO_IMUNES)
+                if guild_id not in imunes:
+                    return
+
+                personagem_normalizado = normalizar_texto(personagem)
+                for user_id, dados in imunes[guild_id].items():
+                    if normalizar_texto(dados["personagem"]) == personagem_normalizado:
+                        usuario_imune = message.guild.get_member(int(user_id))
+                        if not usuario_imune:
+                            continue
+
+                        # verifica se o nome do dono da Mudae coincide com o do usuário imune
+                        pegador = discord.utils.find(
+                            lambda m: normalizar_texto(m.name) == normalizar_texto(dono_nome)
+                                      or normalizar_texto(m.display_name) == normalizar_texto(dono_nome),
+                            message.guild.members
+                        )
+
+                        if pegador and pegador.id == usuario_imune.id:
+                            definir_cooldown(user_id, dias=3)
+                            config = carregar_json(ARQUIVO_CONFIG)
+                            canal_id = config.get(guild_id)
+                            canal = message.guild.get_channel(canal_id) if canal_id else None
+                            if canal:
+                                await canal.send(
+                                    f"🕒 {usuario_imune.mention}, você usou `$im` em seu personagem imune "
+                                    f"**{dados['personagem']} ({dados['origem']})**.\n"
+                                    f"Você agora está em cooldown de **3 dias** para usar `/imune_add` novamente."
+                                )
+                        break  # interrompe após o primeiro match
+
+    # Permite que outros comandos funcionem normalmente
+    await bot.process_commands(message)
+
 
 
     # === EVENTO DE CASAMENTO DA MUDAE VIA EMBED ===
