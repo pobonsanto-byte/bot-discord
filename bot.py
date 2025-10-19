@@ -10,6 +10,7 @@ import requests
 import time
 import base64
 import re
+import asyncio
 from discord.ui import View, Button
 import xml.etree.ElementTree as ET
 import unicodedata
