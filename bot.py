@@ -575,12 +575,10 @@ async def on_message(message):
                             )
 
                         # Aplica cooldown de 3 dias no imune
-                        cooldowns = carregar_json(ARQUIVO_COOLDOWN)
-                        cooldowns[user_id] = agora_brasil().strftime("%Y-%m-%d %H:%M:%S")
-                        salvar_json(cooldowns, ARQUIVO_COOLDOWN)
-
+                        definir_cooldown(user_id, dias=3)
                         print(f"[COOLDOWN] {usuario_imune} entrou em cooldown de 3 dias (personagem: {dados['personagem']}).")
                         break  # só processa o primeiro match
+
 
     # Permite que outros comandos funcionem normalmente
     await bot.process_commands(message)
