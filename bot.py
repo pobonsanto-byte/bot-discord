@@ -538,10 +538,13 @@ async def on_message(message):
                                     )
                                 break  # só notifica uma vez
 
-            # === NOVO DETECTOR DE $im (IMUNE CHECK) ===
-            elif embed.title and embed.description and "Pertence a" in embed.description:
+            # === NOVO DETECTOR DE $IM DA MUDAE ===
+            elif embed.title and embed.footer and embed.footer.text and "Pertence a" in embed.footer.text:
                 personagem = embed.title.strip()
-                match = re.search(r"Pertence a ([^~\n]+)", embed.description)
+                footer_text = embed.footer.text.strip()
+
+                # Extrai nome do dono que aparece no rodapé
+                match = re.search(r"Pertence a ([^~\n]+)", footer_text)
                 if not match:
                     return
                 dono_nome = match.group(1).strip()
@@ -552,34 +555,36 @@ async def on_message(message):
                     return
 
                 personagem_normalizado = normalizar_texto(personagem)
+
                 for user_id, dados in imunes[guild_id].items():
                     if normalizar_texto(dados["personagem"]) == personagem_normalizado:
                         usuario_imune = message.guild.get_member(int(user_id))
                         if not usuario_imune:
                             continue
 
-                        # verifica se o nome do dono da Mudae coincide com o do usuário imune
-                        pegador = discord.utils.find(
-                            lambda m: normalizar_texto(m.name) == normalizar_texto(dono_nome)
-                                      or normalizar_texto(m.display_name) == normalizar_texto(dono_nome),
-                            message.guild.members
-                        )
+                        # Sempre aplica cooldown no usuário que imunizou,
+                        # independentemente de quem usou o $im
+                        config = carregar_json(ARQUIVO_CONFIG)
+                        canal_id = config.get(guild_id)
+                        canal = message.guild.get_channel(canal_id) if canal_id else None
+                        if canal:
+                            await canal.send(
+                                f"⚠️ {usuario_imune.mention}, seu personagem imune "
+                                f"**{dados['personagem']} ({dados['origem']})** já foi pego\n"
+                                f"Você agora está em cooldown para usar `/imune_add` novamente."
+                            )
 
-                        if pegador and pegador.id == usuario_imune.id:
-                            definir_cooldown(user_id, dias=3)
-                            config = carregar_json(ARQUIVO_CONFIG)
-                            canal_id = config.get(guild_id)
-                            canal = message.guild.get_channel(canal_id) if canal_id else None
-                            if canal:
-                                await canal.send(
-                                    f"🕒 {usuario_imune.mention}, você usou `$im` em seu personagem imune "
-                                    f"**{dados['personagem']} ({dados['origem']})**.\n"
-                                    f"Você agora está em cooldown de **3 dias** para usar `/imune_add` novamente."
-                                )
-                        break  # interrompe após o primeiro match
+                        # Aplica cooldown de 3 dias no imune
+                        cooldowns = carregar_json(ARQUIVO_COOLDOWN)
+                        cooldowns[user_id] = agora_brasil().strftime("%Y-%m-%d %H:%M:%S")
+                        salvar_json(cooldowns, ARQUIVO_COOLDOWN)
+
+                        print(f"[COOLDOWN] {usuario_imune} entrou em cooldown de 3 dias (personagem: {dados['personagem']}).")
+                        break  # só processa o primeiro match
 
     # Permite que outros comandos funcionem normalmente
     await bot.process_commands(message)
+
 
 
 
