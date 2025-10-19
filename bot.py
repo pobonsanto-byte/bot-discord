@@ -398,22 +398,31 @@ async def resetar_cooldown(interaction: discord.Interaction, usuario: discord.Me
     )
 
 # === COMANDOS PADRÃO ===
-@bot.tree.command(name="remover_imune", description="Remove um personagem da lista de imunes e aplica cooldown de 3 dias no dono.")
+@bot.tree.command(name="remover_com_cd", description="Remove um personagem da lista de imunes e aplica cooldown de 3 dias no dono.")
 @app_commands.describe(personagem="Nome do personagem a ser removido da lista de imunes.")
-async def remover_imune(interaction: discord.Interaction, personagem: str):
-    # IDs que têm permissão para usar este comando
+async def remover_com_cd(interaction: discord.Interaction, personagem: str):
+    # === IDs de usuários autorizados ===
     ids_autorizados = [292756862020091906, 289801244653125634]
 
-    # Verifica permissão
+    # === Verifica se o autor está autorizado ===
     if interaction.user.id not in ids_autorizados:
         await interaction.response.send_message("❌ Você não tem permissão para usar este comando.", ephemeral=True)
         return
 
+    # === Carrega configuração do canal salvo com /set_canal_imune ===
+    config = carregar_json(ARQUIVO_CONFIG)
+    guild_id = str(interaction.guild.id)
+    canal_id_configurado = config.get(guild_id)
+
+    # Se o canal configurado não for o atual, bloqueia o uso
+    if not canal_id_configurado or interaction.channel.id != canal_id_configurado:
+        await interaction.response.send_message("⚠️ Este comando só pode ser usado no canal configurado pelo `/set_canal_imune`.", ephemeral=True)
+        return
+
     await interaction.response.defer(thinking=True, ephemeral=False)
 
-    guild_id = str(interaction.guild.id)
+    # === Carrega o arquivo de imunidades ===
     imunes = carregar_json(ARQUIVO_IMUNES)
-
     if guild_id not in imunes or not imunes[guild_id]:
         await interaction.followup.send("⚠️ Nenhum personagem imune encontrado neste servidor.", ephemeral=False)
         return
@@ -421,7 +430,7 @@ async def remover_imune(interaction: discord.Interaction, personagem: str):
     personagem_normalizado = normalizar_texto(personagem)
     removido = False
 
-    # Percorre os imunes e remove o personagem correspondente
+    # === Procura e remove o personagem ===
     for user_id, dados in list(imunes[guild_id].items()):
         if normalizar_texto(dados["personagem"]) == personagem_normalizado:
             usuario = interaction.guild.get_member(int(user_id))
@@ -434,7 +443,7 @@ async def remover_imune(interaction: discord.Interaction, personagem: str):
             # Aplica cooldown de 3 dias
             definir_cooldown(user_id, dias=3)
 
-            # Mensagem de confirmação
+            # Envia confirmação
             await interaction.followup.send(
                 f"🗑️ O personagem **{dados['personagem']} ({dados['origem']})** foi removido da lista de imunes.\n"
                 f"🕒 {nome_usuario} entrou em cooldown de **3 dias** para usar `/imune_add` novamente.",
@@ -447,7 +456,6 @@ async def remover_imune(interaction: discord.Interaction, personagem: str):
 
     if not removido:
         await interaction.followup.send(f"⚠️ O personagem **{personagem}** não foi encontrado na lista de imunes.", ephemeral=False)
-
 
 
 @bot.tree.command(name="testar_mudae", description="Testa a leitura da última embed enviada pela Mudae no canal.")
