@@ -398,6 +398,58 @@ async def resetar_cooldown(interaction: discord.Interaction, usuario: discord.Me
     )
 
 # === COMANDOS PADRÃO ===
+@bot.tree.command(name="remover_imune", description="Remove um personagem da lista de imunes e aplica cooldown de 3 dias no dono.")
+@app_commands.describe(personagem="Nome do personagem a ser removido da lista de imunes.")
+async def remover_imune(interaction: discord.Interaction, personagem: str):
+    # IDs que têm permissão para usar este comando
+    ids_autorizados = [292756862020091906, 289801244653125634]
+
+    # Verifica permissão
+    if interaction.user.id not in ids_autorizados:
+        await interaction.response.send_message("❌ Você não tem permissão para usar este comando.", ephemeral=True)
+        return
+
+    await interaction.response.defer(thinking=True, ephemeral=False)
+
+    guild_id = str(interaction.guild.id)
+    imunes = carregar_json(ARQUIVO_IMUNES)
+
+    if guild_id not in imunes or not imunes[guild_id]:
+        await interaction.followup.send("⚠️ Nenhum personagem imune encontrado neste servidor.", ephemeral=False)
+        return
+
+    personagem_normalizado = normalizar_texto(personagem)
+    removido = False
+
+    # Percorre os imunes e remove o personagem correspondente
+    for user_id, dados in list(imunes[guild_id].items()):
+        if normalizar_texto(dados["personagem"]) == personagem_normalizado:
+            usuario = interaction.guild.get_member(int(user_id))
+            nome_usuario = usuario.mention if usuario else f"ID {user_id}"
+
+            # Remove do arquivo
+            del imunes[guild_id][user_id]
+            salvar_json(ARQUIVO_IMUNES, imunes)
+
+            # Aplica cooldown de 3 dias
+            definir_cooldown(user_id, dias=3)
+
+            # Mensagem de confirmação
+            await interaction.followup.send(
+                f"🗑️ O personagem **{dados['personagem']} ({dados['origem']})** foi removido da lista de imunes.\n"
+                f"🕒 {nome_usuario} entrou em cooldown de **3 dias** para usar `/imune_add` novamente.",
+                ephemeral=False
+            )
+
+            print(f"[ADMIN REMOVER] {interaction.user} removeu {dados['personagem']} ({dados['origem']}) de {nome_usuario}.")
+            removido = True
+            break
+
+    if not removido:
+        await interaction.followup.send(f"⚠️ O personagem **{personagem}** não foi encontrado na lista de imunes.", ephemeral=False)
+
+
+
 @bot.tree.command(name="testar_mudae", description="Testa a leitura da última embed enviada pela Mudae no canal.")
 async def testar_mudae_embed(interaction: discord.Interaction):
     await interaction.response.defer(thinking=True, ephemeral=False)
