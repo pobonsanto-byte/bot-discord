@@ -648,9 +648,9 @@ async def on_message(message: discord.Message):
 
                 if canal:
                     await canal.send(
-                        f"⚠️ {usuario_imune.mention}, seu personagem imune "
+                        f" {usuario_imune.mention}, seu personagem imune "
                         f"**{dados['personagem']} ({dados['origem']})** já foi pego. "
-                        f"🕒 Você agora está em cooldown de **3 dias** para usar `/imune_add` novamente."
+                        f"Você agora está em cooldown de **3 dias** para usar `/imune_add` novamente."
                     )
 
                 print(f"[REMOVIDO] {dados['personagem']} removido das imunidades. Cooldown aplicado a {usuario_imune}.")
@@ -751,26 +751,28 @@ async def verificar_cooldowns():
 
     expirados = []
 
+    # === IDENTIFICA COOLDOWNS EXPIRADOS ===
     for user_id, data in cooldowns.items():
-        # O JSON pode ter apenas uma string ou um dicionário
         if isinstance(data, str):
+            # 🔹 Formato antigo: apenas uma string
             try:
                 expira = datetime.strptime(data, "%Y-%m-%d %H:%M:%S")
                 avisado = False
             except ValueError:
                 continue
         else:
+            # 🔹 Formato novo: dicionário
             expira_str = data.get("expira")
             avisado = data.get("avisado", False)
             try:
                 expira = datetime.strptime(expira_str, "%Y-%m-%d %H:%M:%S")
-            except:
+            except Exception:
                 continue
 
-        # Se o cooldown expirou e o aviso ainda não foi enviado
         if agora >= expira and not avisado:
             expirados.append(user_id)
 
+    # === ENVIA AVISO PARA COOLDOWNS EXPIRADOS ===
     for user_id in expirados:
         user_id_int = int(user_id)
         aviso_enviado = False
@@ -791,7 +793,8 @@ async def verificar_cooldowns():
                     await membro.send(" Seu cooldown acabou! Você já pode usar `/imune_add` novamente.")
                 aviso_enviado = True
                 break
-            except:
+            except Exception as e:
+                print(f"⚠️ Erro ao notificar cooldown de {membro}: {e}")
                 continue
 
         # Marca como avisado (para não enviar de novo)
@@ -801,13 +804,33 @@ async def verificar_cooldowns():
             else:
                 cooldowns[user_id]["avisado"] = aviso_enviado
 
-    # Remove cooldowns expirados que já foram avisados
-    cooldowns = {
-        uid: data for uid, data in cooldowns.items()
-        if isinstance(data, dict) and not data.get("avisado", False)
-    }
+    # === LIMPEZA SEGURA DE COOLDOWNS ===
+    cooldowns_filtrados = {}
 
-    salvar_json(ARQUIVO_COOLDOWN, cooldowns)
+    for uid, data in cooldowns.items():
+        if isinstance(data, dict):
+            expira_str = data.get("expira")
+            avisado = data.get("avisado", False)
+            try:
+                expira = datetime.strptime(expira_str, "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                cooldowns_filtrados[uid] = data
+                continue
+
+            if agora < expira or not avisado:
+                cooldowns_filtrados[uid] = data
+
+        elif isinstance(data, str):
+            try:
+                expira = datetime.strptime(data, "%Y-%m-%d %H:%M:%S")
+                if agora < expira:
+                    cooldowns_filtrados[uid] = data
+            except Exception:
+                cooldowns_filtrados[uid] = data
+
+    salvar_json(ARQUIVO_COOLDOWN, cooldowns_filtrados)
+    print(f"[LOOP] Cooldowns antes: {len(cooldowns)} | depois: {len(cooldowns_filtrados)} | {datetime.now()}")
+
 
 
 # === LOOP YOUTUBE ===
