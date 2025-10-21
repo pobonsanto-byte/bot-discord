@@ -372,8 +372,9 @@ class ListaImunesView(View):
 @app_commands.checks.has_permissions(administrator=True)
 async def set_log(interaction: discord.Interaction):
     guild_id = str(interaction.guild.id)
+    canal = interaction.channel  # ✅ define o canal atual onde o comando foi usado
     logs = carregar_json(ARQUIVO_LOG_ATIVIDADE)
-    logs[guild_id] = interaction.channel.id
+    logs[guild_id] = canal.id
     salvar_json(ARQUIVO_LOG_ATIVIDADE, logs)
     await interaction.response.send_message(f"✅ Canal de log definido para {canal.mention}.", ephemeral=True)
 
