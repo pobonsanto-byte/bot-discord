@@ -301,8 +301,8 @@ class ListaImunesView(View):
 
 # === COMANDOS ADMIN ===
 @bot.tree.command(name="set_log", description="Define o canal de log de atividade (apenas administradores).")
-@commands.has_permissions(administrator=True)
-async def set_log(interaction: discord.Interaction, canal: discord.TextChannel):
+@app_commands.checks.has_permissions(administrator=True)
+async def set_log(interaction: discord.Interaction):
     guild_id = str(interaction.guild.id)
     logs = carregar_json(ARQUIVO_LOG_ATIVIDADE)
     logs[guild_id] = canal.id
