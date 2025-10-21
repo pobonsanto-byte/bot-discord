@@ -267,65 +267,6 @@ def canal_imunidade():
         return False
     return app_commands.check(predicate)
 
-# === VIEW PADRÃO (baseada na ListaImunesView) ===
-class ListaAtividadeView(View):
-    def __init__(self, interaction, todos, timeout=120):
-        super().__init__(timeout=timeout)
-        self.interaction = interaction
-        self.todos = todos
-        self.page = 0
-        self.total_pages = math.ceil(len(self.todos) / 10)
-        self.message = None
-
-        if self.total_pages > 1:
-            b1 = Button(label="⬅️", style=discord.ButtonStyle.gray)
-            b1.callback = self.anterior_callback
-            b2 = Button(label="➡️", style=discord.ButtonStyle.gray)
-            b2.callback = self.proximo_callback
-            self.add_item(b1)
-            self.add_item(b2)
-
-    def gerar_embed(self):
-        inicio = self.page * 10
-        fim = inicio + 10
-        lista_pagina = self.todos[inicio:fim]
-
-        embed = discord.Embed(
-            title="📊 Status de Atividade dos Usuários",
-            color=discord.Color.blurple()
-        )
-
-        if not lista_pagina:
-            embed.description = "Nenhum usuário encontrado nesta página."
-        else:
-            for status, user_id, tempo in lista_pagina:
-                membro = self.interaction.guild.get_member(int(user_id))
-                nome = membro.name if membro else f"Desconhecido ({user_id})"
-                embed.add_field(
-                    name=f"{status} — {nome}",
-                    value=f"Última atividade: `{tempo}`",
-                    inline=False
-                )
-
-        embed.set_footer(text=f"Página {self.page+1}/{self.total_pages}")
-        return embed
-
-    async def anterior_callback(self, i):
-        if i.user.id != self.interaction.user.id:
-            await i.response.send_message("🚫 Só quem usou o comando pode mudar de página.", ephemeral=True)
-            return
-        if self.page > 0:
-            self.page -= 1
-            await i.response.edit_message(embed=self.gerar_embed(), view=self)
-
-    async def proximo_callback(self, i):
-        if i.user.id != self.interaction.user.id:
-            await i.response.send_message("🚫 Só quem usou o comando pode mudar de página.", ephemeral=True)
-            return
-        if self.page < self.total_pages - 1:
-            self.page += 1
-            await i.response.edit_message(embed=self.gerar_embed(), view=self)
-
 # === PAGINAÇÃO ===
 class ListaImunesView(View):
     def __init__(self, grupos, timeout=120):
@@ -471,13 +412,15 @@ async def resetar_cooldown(interaction: discord.Interaction, usuario: discord.Me
 
 # === COMANDOS PADRÃO ===
 @bot.tree.command(name="atividade_status", description="Exibe o status de atividade dos usuários (somente IDs autorizados).")
-async def atividade_status(interaction: discord.Interaction):
+async def atividade_status(interaction: discord.Interaction, pagina: int = 1):
     IDS_AUTORIZADOS = [292756862020091906, 289801244653125634]
 
+    # --- Verifica permissão ---
     if interaction.user.id not in IDS_AUTORIZADOS:
         await interaction.response.send_message("🚫 Você não tem permissão para usar este comando.", ephemeral=True)
         return
 
+    # --- Verifica canal configurado ---
     logs = carregar_json(ARQUIVO_LOG)
     canal_log_id = logs.get(str(interaction.guild.id))
 
@@ -485,39 +428,89 @@ async def atividade_status(interaction: discord.Interaction):
         await interaction.response.send_message("⚠️ Este comando só pode ser usado no canal configurado com `/set_log`.", ephemeral=True)
         return
 
-    atividades = carregar_atividade()
-    if not atividades:
-        await interaction.response.send_message("📭 Nenhum registro de atividade encontrado.", ephemeral=True)
-        return
+    # === Função auxiliar para gerar embed ===
+    def gerar_embed(pagina_atual: int):
+        atividades = carregar_atividade()
+        if not atividades:
+            return discord.Embed(description="📭 Nenhum registro de atividade encontrado.", color=discord.Color.red())
 
-    agora = agora_brasil()
-    ativos, inativos = [], []
+        agora = agora_brasil()
+        ativos, inativos = [], []
 
-    for user_id, ultima_str in atividades.items():
-        try:
-            ultima_atividade = datetime.strptime(ultima_str, "%Y-%m-%d %H:%M:%S")
-        except ValueError:
-            continue
+        for user_id, info in atividades.items():
+            if isinstance(info, dict):
+                ultima_str = info.get("data")
+                nome_usuario = info.get("usuario", "Desconhecido")
+            else:
+                ultima_str = info
+                nome_usuario = "Desconhecido"
 
-        delta = agora - ultima_atividade
-        if delta < timedelta(days=2):
-            ativos.append(("🟢 Ativo", user_id, ultima_str))
+            try:
+                ultima_atividade = datetime.strptime(ultima_str, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                continue
+
+            delta = agora - ultima_atividade
+            if delta < timedelta(days=2):
+                ativos.append(("🟢 Ativo", user_id, nome_usuario, ultima_str))
+            else:
+                inativos.append(("🔴 Inativo", user_id, nome_usuario, ultima_str))
+
+        todos = ativos + inativos
+        total_paginas = max(1, math.ceil(len(todos) / 10))
+        pagina_atual = max(1, min(pagina_atual, total_paginas))
+        inicio, fim = (pagina_atual - 1) * 10, pagina_atual * 10
+        lista_pagina = todos[inicio:fim]
+
+        embed = discord.Embed(
+            title=f"📊 Status de Atividade — Página {pagina_atual}/{total_paginas}",
+            color=discord.Color.blurple()
+        )
+        if not lista_pagina:
+            embed.description = "Nenhum usuário nesta página."
         else:
-            inativos.append(("🔴 Inativo", user_id, ultima_str))
+            for status, user_id, nome_usuario, tempo in lista_pagina:
+                membro = interaction.guild.get_member(int(user_id))
+                nome_display = membro.display_name if membro else nome_usuario
+                embed.add_field(
+                    name=f"{status} — {nome_display}",
+                    value=f"Última atividade: `{tempo}`",
+                    inline=False
+                )
+        return embed, total_paginas
 
-    todos = ativos + inativos
-    if not todos:
-        await interaction.response.send_message("📭 Nenhum usuário encontrado.", ephemeral=True)
-        return
+    # === VIEW COM BOTÕES ===
+    class AtividadeView(View):
+        def __init__(self, pagina_atual):
+            super().__init__(timeout=120)
+            self.pagina = pagina_atual
+            self.total_paginas = gerar_embed(self.pagina)[1]
 
-    view = ListaAtividadeView(interaction, todos)
-    embed = view.gerar_embed()
+        async def atualizar(self, interaction_btn):
+            novo_embed, _ = gerar_embed(self.pagina)
+            await interaction_btn.response.edit_message(embed=novo_embed, view=self)
+
+        @discord.ui.button(label="⬅️", style=discord.ButtonStyle.gray)
+        async def anterior(self, interaction_btn: discord.Interaction, button: Button):
+            if self.pagina > 1:
+                self.pagina -= 1
+                await self.atualizar(interaction_btn)
+
+        @discord.ui.button(label="➡️", style=discord.ButtonStyle.gray)
+        async def proximo(self, interaction_btn: discord.Interaction, button: Button):
+            if self.pagina < self.total_paginas:
+                self.pagina += 1
+                await self.atualizar(interaction_btn)
+
+        @discord.ui.button(label="🔄 Atualizar", style=discord.ButtonStyle.green)
+        async def atualizar_lista(self, interaction_btn: discord.Interaction, button: Button):
+            # Recarrega tudo do JSON, mas mantém a página
+            await self.atualizar(interaction_btn)
+
+    # === Envia a primeira página ===
+    embed, total_paginas = gerar_embed(pagina)
+    view = AtividadeView(pagina)
     await interaction.response.send_message(embed=embed, view=view)
-
-# === Tratamento de erro ===
-@atividade_status.error
-async def atividade_status_error(interaction: discord.Interaction, error):
-    await interaction.response.send_message("❌ Ocorreu um erro ao processar o comando.", ephemeral=True)
 
 @bot.tree.command(name="remover_com_cd", description="Remove um personagem da lista de imunes e aplica cooldown de 3 dias no dono.")
 @app_commands.describe(personagem="Nome do personagem a ser removido da lista de imunes.")
@@ -714,16 +707,19 @@ async def on_message(message: discord.Message):
     if message.author.bot and message.author.name.lower() != "mudae":
         return
 
-    # === ATUALIZA ATIVIDADE ===
-    roll_prefixes = ("$w", "$wg", "$h", "$hg", "$wa", "$ha")
-
+    # === REGISTRA ATIVIDADE DO USUÁRIO ===
+    roll_prefixes = ("$w", "$wg", "$wa", "$wx", "$wl")
     if message.content.startswith(roll_prefixes):
         try:
             atividade = carregar_atividade()
-            atividade[str(message.author.id)] = agora_brasil().strftime("%Y-%m-%d %H:%M:%S")
+            atividade[str(message.author.id)] = {
+                "usuario": message.author.name,
+                "data": agora_brasil().strftime("%Y-%m-%d %H:%M:%S")
+            }
             salvar_atividade(atividade)
         except Exception as e:
             print(f"⚠️ Erro ao atualizar atividade de {message.author.id}: {e}")
+
 
     # ====================================
     # === NOVO DETECTOR AUTOMÁTICO DE $IM
