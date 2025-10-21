@@ -595,7 +595,7 @@ async def on_message(message: discord.Message):
         return
 
     # === ATUALIZA ATIVIDADE ===
-    roll_prefixes = ("$w", "$wg", "$h", "$hg", "$wa", "$ha", "$tu")
+    roll_prefixes = ("$w", "$wg", "$h", "$hg", "$wa", "$ha")
 
     if message.content.startswith(roll_prefixes):
         try:
