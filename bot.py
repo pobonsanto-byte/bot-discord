@@ -82,6 +82,73 @@ def salvar_atividade(dados):
     """Salva o arquivo de atividade no GitHub."""
     salvar_json(ARQUIVO_ATIVIDADE, dados)
 
+# === LOOP DE CHECAGEM DE ATIVIDADE ===
+@tasks.loop(hours=3)
+async def checar_atividade():
+    """Verifica quem está inativo ou apenas rolando a cada 3 dias e envia avisos no canal de log."""
+    try:
+        logs = carregar_json(ARQUIVO_LOG)
+        atividades = carregar_atividade()
+        agora = agora_brasil()
+
+        for guild in bot.guilds:
+            guild_id = str(guild.id)
+            if guild_id not in logs:
+                continue
+
+            canal_id = logs[guild_id]
+            canal = guild.get_channel(canal_id)
+            if not canal:
+                continue
+
+            inativos = []
+            suspeitos = []
+
+            for user_id, ultima_str in atividades.items():
+                try:
+                    ultima_atividade = datetime.strptime(ultima_str, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    continue
+
+                delta = agora - ultima_atividade
+                membro = guild.get_member(int(user_id))
+                nome = membro.mention if membro else f"Usuário ({user_id})"
+
+                # ⚠️ Inativo há 3 dias ou mais
+                if delta.days >= 3:
+                    inativos.append(f"🔴 {nome} — {delta.days} dias sem roletar")
+
+                # ⚠️ Ativo, mas com padrão de 3 dias (suspeito de burla)
+                elif 2 < delta.days <= 3:
+                    suspeitos.append(f"🟡 {nome} — rolando a cada {delta.days} dias")
+
+            if not inativos and not suspeitos:
+                continue
+
+            embed = discord.Embed(
+                title="📊 Relatório de Atividade da Mudae",
+                color=discord.Color.orange(),
+                timestamp=agora
+            )
+
+            if suspeitos:
+                embed.add_field(
+                    name="⚠️ Jogadores com rolagens suspeita:",
+                    value="\n".join(suspeitos),
+                    inline=False
+                )
+
+            if inativos:
+                embed.add_field(
+                    name="❌ Jogadores inativos (sem roletar há 3+ dias):",
+                    value="\n".join(inativos),
+                    inline=False
+                )
+
+            await canal.send(embed=embed)
+
+    except Exception as e:
+        print(f"[ERRO] checar_atividade: {e}")
 
 
 @tasks.loop(hours=1)
@@ -243,6 +310,7 @@ class ImuneBot(discord.Client):
         verificar_youtube.start()
         verificar_cooldowns.start()
         verificar_inatividade.start()
+        checar_atividade.start()
 
 bot = ImuneBot()
 
