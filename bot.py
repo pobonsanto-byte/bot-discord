@@ -87,7 +87,7 @@ def salvar_atividade(dados):
 async def checar_atividade():
     """Verifica quem está inativo ou apenas rolando a cada 3 dias e envia avisos no canal de log."""
     try:
-        logs = carregar_json(ARQUIVO_LOG)
+        logs = carregar_json(ARQUIVO_LOG_ATIVIDADE)
         atividades = carregar_atividade()
         agora = agora_brasil()
 
@@ -490,7 +490,7 @@ async def atividade_status(interaction: discord.Interaction, pagina: int = 1):
         return
 
     # --- Verifica canal configurado ---
-    logs = carregar_json(ARQUIVO_LOG)
+    logs = carregar_json(ARQUIVO_LOG_ATIVIDADE)
     canal_log_id = logs.get(str(interaction.guild.id))
 
     if canal_log_id is None or interaction.channel.id != canal_log_id:
