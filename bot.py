@@ -373,7 +373,7 @@ class ListaImunesView(View):
 async def set_log(interaction: discord.Interaction):
     guild_id = str(interaction.guild.id)
     logs = carregar_json(ARQUIVO_LOG_ATIVIDADE)
-    logs[guild_id] = canal.id
+    logs[guild_id] = interaction.channel.id
     salvar_json(ARQUIVO_LOG_ATIVIDADE, logs)
     await interaction.response.send_message(f"✅ Canal de log definido para {canal.mention}.", ephemeral=True)
 
