@@ -267,6 +267,65 @@ def canal_imunidade():
         return False
     return app_commands.check(predicate)
 
+# === VIEW PADRÃO (baseada na ListaImunesView) ===
+class ListaAtividadeView(View):
+    def __init__(self, interaction, todos, timeout=120):
+        super().__init__(timeout=timeout)
+        self.interaction = interaction
+        self.todos = todos
+        self.page = 0
+        self.total_pages = math.ceil(len(self.todos) / 10)
+        self.message = None
+
+        if self.total_pages > 1:
+            b1 = Button(label="⬅️", style=discord.ButtonStyle.gray)
+            b1.callback = self.anterior_callback
+            b2 = Button(label="➡️", style=discord.ButtonStyle.gray)
+            b2.callback = self.proximo_callback
+            self.add_item(b1)
+            self.add_item(b2)
+
+    def gerar_embed(self):
+        inicio = self.page * 10
+        fim = inicio + 10
+        lista_pagina = self.todos[inicio:fim]
+
+        embed = discord.Embed(
+            title="📊 Status de Atividade dos Usuários",
+            color=discord.Color.blurple()
+        )
+
+        if not lista_pagina:
+            embed.description = "Nenhum usuário encontrado nesta página."
+        else:
+            for status, user_id, tempo in lista_pagina:
+                membro = self.interaction.guild.get_member(int(user_id))
+                nome = membro.name if membro else f"Desconhecido ({user_id})"
+                embed.add_field(
+                    name=f"{status} — {nome}",
+                    value=f"Última atividade: `{tempo}`",
+                    inline=False
+                )
+
+        embed.set_footer(text=f"Página {self.page+1}/{self.total_pages}")
+        return embed
+
+    async def anterior_callback(self, i):
+        if i.user.id != self.interaction.user.id:
+            await i.response.send_message("🚫 Só quem usou o comando pode mudar de página.", ephemeral=True)
+            return
+        if self.page > 0:
+            self.page -= 1
+            await i.response.edit_message(embed=self.gerar_embed(), view=self)
+
+    async def proximo_callback(self, i):
+        if i.user.id != self.interaction.user.id:
+            await i.response.send_message("🚫 Só quem usou o comando pode mudar de página.", ephemeral=True)
+            return
+        if self.page < self.total_pages - 1:
+            self.page += 1
+            await i.response.edit_message(embed=self.gerar_embed(), view=self)
+
 # === PAGINAÇÃO ===
 class ListaImunesView(View):
     def __init__(self, grupos, timeout=120):
@@ -412,7 +471,7 @@ async def resetar_cooldown(interaction: discord.Interaction, usuario: discord.Me
 
 # === COMANDOS PADRÃO ===
 @bot.tree.command(name="atividade_status", description="Exibe o status de atividade dos usuários (somente IDs autorizados).")
-async def atividade_status(interaction: discord.Interaction, pagina: int = 1):
+async def atividade_status(interaction: discord.Interaction):
     IDS_AUTORIZADOS = [292756862020091906, 289801244653125634]
 
     if interaction.user.id not in IDS_AUTORIZADOS:
@@ -432,8 +491,7 @@ async def atividade_status(interaction: discord.Interaction, pagina: int = 1):
         return
 
     agora = agora_brasil()
-    ativos = []
-    inativos = []
+    ativos, inativos = [], []
 
     for user_id, ultima_str in atividades.items():
         try:
@@ -443,41 +501,23 @@ async def atividade_status(interaction: discord.Interaction, pagina: int = 1):
 
         delta = agora - ultima_atividade
         if delta < timedelta(days=2):
-            ativos.append((user_id, ultima_str))
+            ativos.append(("🟢 Ativo", user_id, ultima_str))
         else:
-            inativos.append((user_id, ultima_str))
+            inativos.append(("🔴 Inativo", user_id, ultima_str))
 
-    todos = [("🟢 Ativo", u, t) for u, t in ativos] + [("🔴 Inativo", u, t) for u, t in inativos]
-    total_paginas = max(1, math.ceil(len(todos) / 10))
-    pagina = max(1, min(pagina, total_paginas))
-    inicio = (pagina - 1) * 10
-    fim = inicio + 10
-    lista_pagina = todos[inicio:fim]
+    todos = ativos + inativos
+    if not todos:
+        await interaction.response.send_message("📭 Nenhum usuário encontrado.", ephemeral=True)
+        return
 
-    embed = discord.Embed(
-        title=f"📊 Status de Atividade — Página {pagina}/{total_paginas}",
-        color=discord.Color.blue()
-    )
+    view = ListaAtividadeView(interaction, todos)
+    embed = view.gerar_embed()
+    await interaction.response.send_message(embed=embed, view=view)
 
-    if not lista_pagina:
-        embed.description = "Nenhum usuário registrado nesta página."
-    else:
-        for status, user_id, tempo in lista_pagina:
-            membro = interaction.guild.get_member(int(user_id))
-            nome = membro.name if membro else f"Desconhecido ({user_id})"
-            embed.add_field(
-                name=f"{status} — {nome}",
-                value=f"Última atividade: `{tempo}`",
-                inline=False
-            )
-
-    await interaction.response.send_message(embed=embed)
-
-# === Erro personalizado ===
+# === Tratamento de erro ===
 @atividade_status.error
 async def atividade_status_error(interaction: discord.Interaction, error):
-    if isinstance(error, app_commands.CheckFailure):
-        await interaction.response.send_message("🚫 Você não tem permissão para usar este comando.", ephemeral=True)
+    await interaction.response.send_message("❌ Ocorreu um erro ao processar o comando.", ephemeral=True)
 
 @bot.tree.command(name="remover_com_cd", description="Remove um personagem da lista de imunes e aplica cooldown de 3 dias no dono.")
 @app_commands.describe(personagem="Nome do personagem a ser removido da lista de imunes.")
