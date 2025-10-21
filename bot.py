@@ -14,6 +14,7 @@ import asyncio
 from discord.ui import View, Button
 import xml.etree.ElementTree as ET
 import unicodedata
+import math
 
 # === CONFIGURAÇÃO ===
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -23,6 +24,7 @@ ARQUIVO_COOLDOWN = "cooldowns.json"
 ARQUIVO_YOUTUBE = "youtube.json"
 ARQUIVO_ATIVIDADE = "atividade.json"
 DIAS_INATIVIDADE = 3  # 🕒 define quantos dias sem roletar remove imunidade
+ARQUIVO_LOG_ATIVIDADE = "log_atividade.json"
 
 # === CONFIG GITHUB ===
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
@@ -298,6 +300,16 @@ class ListaImunesView(View):
             await i.response.edit_message(embed=self.gerar_embed(), view=self)
 
 # === COMANDOS ADMIN ===
+@bot.tree.command(name="set_log", description="Define o canal de log de atividade (apenas administradores).")
+@commands.has_permissions(administrator=True)
+async def set_log(interaction: discord.Interaction, canal: discord.TextChannel):
+    guild_id = str(interaction.guild.id)
+    logs = carregar_json(ARQUIVO_LOG_ATIVIDADE)
+    logs[guild_id] = canal.id
+    salvar_json(ARQUIVO_LOG_ATIVIDADE, logs)
+    await interaction.response.send_message(f"✅ Canal de log definido para {canal.mention}.", ephemeral=True)
+
+
 @bot.tree.command(name="set_canal_imune", description="Define o canal onde os comandos de imunidade funcionarão.")
 @app_commands.checks.has_permissions(administrator=True)
 async def set_canal_imune(interaction: discord.Interaction):
@@ -399,6 +411,74 @@ async def resetar_cooldown(interaction: discord.Interaction, usuario: discord.Me
     )
 
 # === COMANDOS PADRÃO ===
+@bot.tree.command(name="atividade_status", description="Exibe o status de atividade dos usuários (somente IDs autorizados).")
+async def atividade_status(interaction: discord.Interaction, pagina: int = 1):
+    IDS_AUTORIZADOS = [292756862020091906, 289801244653125634]
+
+    if interaction.user.id not in IDS_AUTORIZADOS:
+        await interaction.response.send_message("🚫 Você não tem permissão para usar este comando.", ephemeral=True)
+        return
+
+    logs = carregar_json(ARQUIVO_LOG)
+    canal_log_id = logs.get(str(interaction.guild.id))
+
+    if canal_log_id is None or interaction.channel.id != canal_log_id:
+        await interaction.response.send_message("⚠️ Este comando só pode ser usado no canal configurado com `/set_log`.", ephemeral=True)
+        return
+
+    atividades = carregar_atividade()
+    if not atividades:
+        await interaction.response.send_message("📭 Nenhum registro de atividade encontrado.", ephemeral=True)
+        return
+
+    agora = agora_brasil()
+    ativos = []
+    inativos = []
+
+    for user_id, ultima_str in atividades.items():
+        try:
+            ultima_atividade = datetime.strptime(ultima_str, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+
+        delta = agora - ultima_atividade
+        if delta < timedelta(days=2):
+            ativos.append((user_id, ultima_str))
+        else:
+            inativos.append((user_id, ultima_str))
+
+    todos = [("🟢 Ativo", u, t) for u, t in ativos] + [("🔴 Inativo", u, t) for u, t in inativos]
+    total_paginas = max(1, math.ceil(len(todos) / 10))
+    pagina = max(1, min(pagina, total_paginas))
+    inicio = (pagina - 1) * 10
+    fim = inicio + 10
+    lista_pagina = todos[inicio:fim]
+
+    embed = discord.Embed(
+        title=f"📊 Status de Atividade — Página {pagina}/{total_paginas}",
+        color=discord.Color.blue()
+    )
+
+    if not lista_pagina:
+        embed.description = "Nenhum usuário registrado nesta página."
+    else:
+        for status, user_id, tempo in lista_pagina:
+            membro = interaction.guild.get_member(int(user_id))
+            nome = membro.name if membro else f"Desconhecido ({user_id})"
+            embed.add_field(
+                name=f"{status} — {nome}",
+                value=f"Última atividade: `{tempo}`",
+                inline=False
+            )
+
+    await interaction.response.send_message(embed=embed)
+
+# === Erro personalizado ===
+@atividade_status.error
+async def atividade_status_error(interaction: discord.Interaction, error):
+    if isinstance(error, app_commands.CheckFailure):
+        await interaction.response.send_message("🚫 Você não tem permissão para usar este comando.", ephemeral=True)
+
 @bot.tree.command(name="remover_com_cd", description="Remove um personagem da lista de imunes e aplica cooldown de 3 dias no dono.")
 @app_commands.describe(personagem="Nome do personagem a ser removido da lista de imunes.")
 async def remover_com_cd(interaction: discord.Interaction, personagem: str):
