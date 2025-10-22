@@ -85,6 +85,7 @@ def salvar_atividade(dados):
 # === LOOP DE CHECAGEM DE ATIVIDADE ===
 @tasks.loop(hours=3)
 async def checar_atividade():
+    print("🔄 Executando checar_atividade()...")
     """Verifica quem está inativo ou apenas rolando a cada 3 dias e envia avisos no canal de log."""
     try:
         logs = carregar_json(ARQUIVO_LOG_ATIVIDADE)
@@ -306,11 +307,16 @@ class ImuneBot(discord.Client):
         self.tree = app_commands.CommandTree(self)
     async def setup_hook(self):
         await self.tree.sync()
-        verificar_imunidades.start()
-        verificar_youtube.start()
-        verificar_cooldowns.start()
-        verificar_inatividade.start()
-        checar_atividade.start()
+        if not verificar_imunidades.is_running():
+            verificar_imunidades.start()
+        if not verificar_youtube.is_running():
+            verificar_youtube.start()
+        if not verificar_cooldowns.is_running():
+            verificar_cooldowns.start()
+        if not verificar_inatividade.is_running():
+            verificar_inatividade.start()
+        if not checar_atividade.is_running():
+            checar_atividade.start()
 
 bot = ImuneBot()
 
