@@ -328,22 +328,25 @@ class ImuneBot(discord.Client):
         intents.members = True
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
+
     async def setup_hook(self):
-    await self.tree.sync()
+        await self.tree.sync()
 
-    verificar_imunidades.start()
-    verificar_youtube.start()
-    verificar_cooldowns.start()
-    verificar_inatividade.start()
-    checar_atividade.start()
-    checar_atividade.before_loop(self.wait_until_ready)
+        verificar_imunidades.start()
+        verificar_youtube.start()
+        verificar_cooldowns.start()
+        verificar_inatividade.start()
+        checar_atividade.before_loop(self.wait_until_ready)
+        checar_atividade.start()
 
-    # ✅ Executa o loop uma vez manualmente após tudo inicializar
-    await rodar_checar_atividade_uma_vez()
+        # ✅ Executa o loop uma vez manualmente na inicialização
+        await rodar_checar_atividade_uma_vez()
 
-    print("✅ Bot totalmente inicializado e checagem feita uma vez.")
-    
+        print("✅ Bot totalmente inicializado e checagem feita uma vez.")
+
+
 bot = ImuneBot()
+
 
 
 # === CANAL DE IMUNIDADE ===
