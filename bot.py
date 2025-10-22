@@ -129,7 +129,7 @@ async def checar_atividade():
                     inativos.append(f"🔴 {nome} — {delta.days} dias sem roletar")
 
                 # ⚠️ Ativo, mas com padrão de 3 dias (suspeito de burla)
-                elif 2 < delta.days <= 3:
+                elif 1 < delta.days <= 3:
                     suspeitos.append(f"🟡 {nome} — rolando a cada {delta.days} dias")
 
             # Se não há nada para reportar, pula o envio
