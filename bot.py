@@ -164,7 +164,14 @@ async def checar_atividade():
 
 async def rodar_checar_atividade_uma_vez():
     print("🚀 Executando checar_atividade() na inicialização...")
-    await checar_atividade._task_body()  # ✅ chama o corpo interno diretamente
+
+    try:
+        # ✅ Chama diretamente o corpo da função
+        await checar_atividade.coro()
+    except AttributeError:
+        # 🔁 Compatibilidade com versões anteriores do discord.py
+        await checar_atividade()
+
 
 
 
