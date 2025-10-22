@@ -164,13 +164,13 @@ async def checar_atividade():
 
 async def rodar_checar_atividade_uma_vez():
     print("🚀 Executando checar_atividade() na inicialização...")
-
     try:
-        # ✅ Chama diretamente o corpo da função
+        # ✅ Método correto nas versões novas do discord.py
         await checar_atividade.coro()
     except AttributeError:
-        # 🔁 Compatibilidade com versões anteriores do discord.py
+        # 🔁 Compatível com versões antigas
         await checar_atividade()
+
 
 
 
@@ -329,20 +329,20 @@ class ImuneBot(discord.Client):
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
     async def setup_hook(self):
-        await self.tree.sync()
-        if not verificar_imunidades.is_running():
-            verificar_imunidades.start()
-        if not verificar_youtube.is_running():
-            verificar_youtube.start()
-        if not verificar_cooldowns.is_running():
-            verificar_cooldowns.start()
-        if not verificar_inatividade.is_running():
-            verificar_inatividade.start()
-        if not checar_atividade.is_running():
-            checar_atividade.start()
-            print("✅ Loop checar_atividade iniciado!")
-        await rodar_checar_atividade_uma_vez()
+    await self.tree.sync()
 
+    verificar_imunidades.start()
+    verificar_youtube.start()
+    verificar_cooldowns.start()
+    verificar_inatividade.start()
+    checar_atividade.start()
+    checar_atividade.before_loop(self.wait_until_ready)
+
+    # ✅ Executa o loop uma vez manualmente após tudo inicializar
+    await rodar_checar_atividade_uma_vez()
+
+    print("✅ Bot totalmente inicializado e checagem feita uma vez.")
+    
 bot = ImuneBot()
 
 
