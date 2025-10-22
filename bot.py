@@ -86,6 +86,7 @@ def salvar_atividade(dados):
 @tasks.loop(hours=3)
 async def checar_atividade():
     print("🔄 Executando checar_atividade()...")
+    """Verifica quem está inativo ou apenas rolando a cada 3 dias e envia avisos no canal de log."""
     try:
         logs = carregar_json(ARQUIVO_LOG_ATIVIDADE)
         atividades = carregar_atividade()
@@ -104,7 +105,16 @@ async def checar_atividade():
             inativos = []
             suspeitos = []
 
-            for user_id, ultima_str in atividades.items():
+            for user_id, valor in atividades.items():
+                # Detecta se é {"usuario": "...", "data": "..."} ou apenas string
+                if isinstance(valor, dict):
+                    ultima_str = valor.get("data")
+                else:
+                    ultima_str = valor
+
+                if not ultima_str:
+                    continue
+
                 try:
                     ultima_atividade = datetime.strptime(ultima_str, "%Y-%m-%d %H:%M:%S")
                 except ValueError:
@@ -122,6 +132,7 @@ async def checar_atividade():
                 elif 2 < delta.days <= 3:
                     suspeitos.append(f"🟡 {nome} — rolando a cada {delta.days} dias")
 
+            # Se não há nada para reportar, pula o envio
             if not inativos and not suspeitos:
                 continue
 
@@ -133,7 +144,7 @@ async def checar_atividade():
 
             if suspeitos:
                 embed.add_field(
-                    name="⚠️ Jogadores com rolagens suspeita:",
+                    name="⚠️ Jogadores com rolagens suspeitas:",
                     value="\n".join(suspeitos),
                     inline=False
                 )
@@ -146,6 +157,7 @@ async def checar_atividade():
                 )
 
             await canal.send(embed=embed)
+            print(f"📤 Relatório enviado para {canal.name} em {guild.name}")
 
     except Exception as e:
         print(f"[ERRO] checar_atividade: {e}")
