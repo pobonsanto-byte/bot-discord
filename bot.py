@@ -152,7 +152,8 @@ async def checar_atividade():
 
 async def rodar_checar_atividade_uma_vez():
     print("🚀 Executando checar_atividade() na inicialização...")
-    await checar_atividade.callback()  # roda o conteúdo interno da função
+    await checar_atividade._task_body()  # ✅ chama o corpo interno diretamente
+
 
 
 @tasks.loop(hours=1)
