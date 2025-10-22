@@ -526,7 +526,7 @@ async def atividade_status(interaction: discord.Interaction, pagina: int = 1):
                 continue
 
             delta = agora - ultima_atividade
-            if delta < timedelta(days=2):
+            if delta < timedelta(days=3):
                 ativos.append(("🟢 Ativo", user_id, nome_usuario, ultima_str))
             else:
                 inativos.append(("🔴 Inativo", user_id, nome_usuario, ultima_str))
