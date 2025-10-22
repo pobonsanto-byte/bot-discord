@@ -86,7 +86,6 @@ def salvar_atividade(dados):
 @tasks.loop(hours=3)
 async def checar_atividade():
     print("🔄 Executando checar_atividade()...")
-    """Verifica quem está inativo ou apenas rolando a cada 3 dias e envia avisos no canal de log."""
     try:
         logs = carregar_json(ARQUIVO_LOG_ATIVIDADE)
         atividades = carregar_atividade()
@@ -150,6 +149,10 @@ async def checar_atividade():
 
     except Exception as e:
         print(f"[ERRO] checar_atividade: {e}")
+
+async def rodar_checar_atividade_uma_vez():
+    print("🚀 Executando checar_atividade() na inicialização...")
+    await checar_atividade.callback()  # roda o conteúdo interno da função
 
 
 @tasks.loop(hours=1)
@@ -317,8 +320,11 @@ class ImuneBot(discord.Client):
             verificar_inatividade.start()
         if not checar_atividade.is_running():
             checar_atividade.start()
+            print("✅ Loop checar_atividade iniciado!")
+        await rodar_checar_atividade_uma_vez()
 
 bot = ImuneBot()
+
 
 # === CANAL DE IMUNIDADE ===
 def canal_imunidade():
