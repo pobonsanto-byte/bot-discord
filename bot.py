@@ -425,6 +425,28 @@ class ListaImunesView(View):
             await i.response.edit_message(embed=self.gerar_embed(), view=self)
 
 # === COMANDOS ADMIN ===
+@bot.tree.command(name="zerar_series", description="Zera todos os dados do series.json (apenas administradores autorizados).")
+async def zerar_series(interaction: discord.Interaction):
+    # IDs autorizados
+    IDS_AUTORIZADOS = [289801244653125634, 292756862020091906]
+
+    # Verifica se o usuário pode usar
+    if interaction.user.id not in IDS_AUTORIZADOS:
+        await interaction.response.send_message("❌ Você não tem permissão para usar este comando.", ephemeral=True)
+        return
+
+    try:
+        # Zera o conteúdo
+        series_vazio = {}
+        salvar_json("series.json", series_vazio)
+        await interaction.response.send_message("🧹 O arquivo **series.json** foi zerado com sucesso!", ephemeral=True)
+        print(f"✅ {interaction.user.name} ({interaction.user.id}) zerou o series.json.")
+
+    except Exception as e:
+        await interaction.response.send_message(f"⚠️ Erro ao zerar o arquivo: `{e}`", ephemeral=True)
+        print(f"[ERRO] ao zerar series.json: {e}")
+
+
 @bot.tree.command(name="add_serie", description="Adiciona uma nova série à lista de séries.")
 async def add_serie(interaction: discord.Interaction, nome_serie: str):
     ADMIN_ID = 289801244653125634  # ID autorizado extra
@@ -908,7 +930,7 @@ async def on_message(message: discord.Message):
         if message.channel.id not in canais_permitidos:
             return
 
-        await asyncio.sleep(10)  # espera a Mudae enviar as páginas
+        await asyncio.sleep(60)  # espera a Mudae enviar as páginas
 
         try:
             # nome da série digitada (ex: "$imao wuthering waves")
@@ -921,8 +943,10 @@ async def on_message(message: discord.Message):
             if nome_serie not in series:
                 series[nome_serie] = {}
 
+            paginas_coletadas = 0  # contador de páginas processadas
+
             # busca as últimas mensagens da Mudae no canal
-            async for msg in message.channel.history(limit=16):
+            async for msg in message.channel.history(limit=20):  # aumenta limite p/ garantir todas as páginas
                 if msg.author.bot and msg.author.name.lower() == "mudae" and msg.embeds:
                     embed = msg.embeds[0]
                     if not embed.description:
@@ -931,6 +955,7 @@ async def on_message(message: discord.Message):
                     descricao = embed.description or ""
                     linhas = descricao.split("\n")
 
+                    personagens_encontrados = 0
                     for linha in linhas:
                         match = re.search(r"(.+?)\s*💞?\s*=>\s*(.+)", linha)
                         if match:
@@ -940,12 +965,24 @@ async def on_message(message: discord.Message):
                                 series[nome_serie][usuario] = []
                             if personagem not in series[nome_serie][usuario]:
                                 series[nome_serie][usuario].append(personagem)
+                                personagens_encontrados += 1
+
+                    # Se achou personagens, considera uma página processada
+                    if personagens_encontrados > 0:
+                        paginas_coletadas += 1
+                        await message.channel.send(
+                            f"📄 **Página {paginas_coletadas} coletada!** ({personagens_encontrados} personagens encontrados)"
+                        )
 
             salvar_json("series.json", series)
-            print(f"✅ Dados do $imao de '{nome_serie}' salvos/atualizados com sucesso.")
+            await message.channel.send(
+                f"✅ **Coleta finalizada!** Série: `{nome_serie}` — Total de **{paginas_coletadas} páginas** processadas."
+            )
+            print(f"✅ Dados do $imao de '{nome_serie}' salvos/atualizados com sucesso ({paginas_coletadas} páginas).")
 
         except Exception as e:
             print(f"[ERRO] ao processar $imao: {e}")
+            await message.channel.send(f"⚠️ Erro ao processar o $imao: `{e}`")
 
 
             
