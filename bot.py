@@ -425,20 +425,34 @@ class ListaImunesView(View):
             await i.response.edit_message(embed=self.gerar_embed(), view=self)
 
 # === COMANDOS ADMIN ===
-@bot.tree.command(name="add_serie", description="Adiciona uma série ou jogo para o sistema de ranking (somente administradores)")
-@app_commands.describe(nome="Nome da série ou jogo (ex: Genshin Impact, Wuthering Waves)")
-@app_commands.checks.has_permissions(administrator=True)
+@bot.tree.command(name="add_serie", description="Adiciona uma nova série ou jogo à lista de monitoramento ($imao).")
+@app_commands.describe(nome="Nome da série ou jogo a ser monitorado.")
 async def add_serie(interaction: discord.Interaction, nome: str):
-    series = carregar_series()
-    nome = nome.strip()
+    # ID do usuário que também tem permissão (além dos administradores)
+    ID_PERMITIDO = 289801244653125634  
 
-    if nome in series:
-        await interaction.response.send_message(f"⚠️ A série **{nome}** já está cadastrada.", ephemeral=True)
+    # Verifica se o usuário é admin OU o ID é o permitido
+    if not interaction.user.guild_permissions.administrator and interaction.user.id != ID_PERMITIDO:
+        await interaction.response.send_message("❌ Você não tem permissão para usar este comando.", ephemeral=True)
         return
 
-    series[nome] = []
-    salvar_series(series)
-    await interaction.response.send_message(f"✅ Série **{nome}** adicionada com sucesso!", ephemeral=True)
+    try:
+        nome_normalizado = nome.strip().lower()
+        series = carregar_json("series.json")
+
+        if nome_normalizado in series:
+            await interaction.response.send_message(f"⚠️ A série **{nome}** já existe na lista.", ephemeral=True)
+            return
+
+        # Cria a entrada
+        series[nome_normalizado] = {}
+        salvar_json("series.json", series)
+
+        await interaction.response.send_message(f"✅ Série **{nome}** adicionada com sucesso!", ephemeral=False)
+
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Erro ao adicionar série: {e}", ephemeral=True)
+
 
 # Caso o usuário não tenha permissão:
 @add_serie.error
