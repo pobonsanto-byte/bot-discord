@@ -15,7 +15,6 @@ from discord.ui import View, Button
 import xml.etree.ElementTree as ET
 import unicodedata
 import math
-from statistics import mean
 
 # === CONFIGURAÇÃO ===
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -87,7 +86,7 @@ def salvar_atividade(dados):
 @tasks.loop(hours=3)
 async def checar_atividade():
     print("🔄 Executando checar_atividade()...")
-    """Verifica padrões de rolagem e identifica inatividade ou burla por rolagens regulares."""
+    """Verifica quem está inativo ou apenas rolando a cada 3 dias e envia avisos no canal de log."""
     try:
         logs = carregar_json(ARQUIVO_LOG_ATIVIDADE)
         atividades = carregar_atividade()
@@ -107,50 +106,31 @@ async def checar_atividade():
             suspeitos = []
 
             for user_id, valor in atividades.items():
-                # Estrutura esperada:
-                # {
-                #   "usuario": "nome",
-                #   "datas": ["2025-10-18 10:00:00", "2025-10-20 10:01:00", ...]
-                # }
-                usuario = valor.get("usuario", f"Usuário ({user_id})")
-                datas = valor.get("datas", [])
+                # Detecta se é {"usuario": "...", "data": "..."} ou apenas string
+                if isinstance(valor, dict):
+                    ultima_str = valor.get("data")
+                else:
+                    ultima_str = valor
 
-                if not datas:
+                if not ultima_str:
                     continue
 
-                # Converte todas as strings em datetime
                 try:
-                    datas_dt = [datetime.strptime(d, "%Y-%m-%d %H:%M:%S") for d in datas]
+                    ultima_atividade = datetime.strptime(ultima_str, "%Y-%m-%d %H:%M:%S")
                 except ValueError:
                     continue
 
-                # Ordena por ordem crescente (antiga → nova)
-                datas_dt.sort()
-
-                ultima_atividade = datas_dt[-1]
                 delta = agora - ultima_atividade
-
                 membro = guild.get_member(int(user_id))
-                nome = membro.mention if membro else usuario
+                nome = membro.mention if membro else f"Usuário ({user_id})"
 
                 # ⚠️ Inativo há 3 dias ou mais
                 if delta.days >= 3:
                     inativos.append(f"🔴 {nome} — {delta.days} dias sem roletar")
-                    continue
 
-                # ⚠️ Detecta padrão suspeito (rolando sempre a cada 2 dias)
-                if len(datas_dt) >= 3:
-                    intervalos = []
-                    for i in range(1, len(datas_dt)):
-                        diff = (datas_dt[i] - datas_dt[i-1]).days
-                        intervalos.append(diff)
-
-                    # Média dos intervalos de rolagem
-                    media_intervalo = sum(intervalos) / len(intervalos)
-
-                    # Se a média for ~2 dias e a pessoa sempre repete isso, marca como suspeito
-                    if 1.5 <= media_intervalo <= 2.5:
-                        suspeitos.append(f"🟡 {nome} — padrão de rolagem a cada ~{media_intervalo:.1f} dias")
+                # ⚠️ Ativo, mas com padrão de 3 dias (suspeito de burla)
+                elif 1 < delta.days <= 3:
+                    suspeitos.append(f"🟡 {nome} — rolando a cada {delta.days} dias")
 
             # Se não há nada para reportar, pula o envio
             if not inativos and not suspeitos:
@@ -164,7 +144,7 @@ async def checar_atividade():
 
             if suspeitos:
                 embed.add_field(
-                    name="⚠️ Jogadores com padrão de rolagem suspeito:",
+                    name="⚠️ Jogadores com rolagens suspeitas:",
                     value="\n".join(suspeitos),
                     inline=False
                 )
@@ -182,14 +162,14 @@ async def checar_atividade():
     except Exception as e:
         print(f"[ERRO] checar_atividade: {e}")
 
-
-# === EXECUTA UMA VEZ NA INICIALIZAÇÃO ===
 async def rodar_checar_atividade_uma_vez():
     print("🚀 Executando checar_atividade() na inicialização...")
     try:
-        await checar_atividade.coro()  # Executa o loop uma vez
+        # ✅ Método correto nas versões novas do discord.py
+        await checar_atividade.coro()
     except AttributeError:
-        await checar_atividade()  # Compatibilidade com versões antigas
+        # 🔁 Compatível com versões antigas
+        await checar_atividade()
 
 
 
@@ -199,7 +179,7 @@ async def rodar_checar_atividade_uma_vez():
 async def verificar_inatividade():
     agora = agora_brasil()
     imunes = carregar_json(ARQUIVO_IMUNES)
-    atividades = carregar_atividade()
+    atividade = carregar_atividade()
     config = carregar_json(ARQUIVO_CONFIG)
 
     for guild in bot.guilds:
@@ -212,62 +192,47 @@ async def verificar_inatividade():
         remover_lista = []
 
         for user_id, dados in imunes[guild_id].items():
-            registro = atividades.get(user_id)
-
-            # Se não houver registro de atividade
-            if not registro:
+            ultima_str = atividade.get(user_id)
+            if not ultima_str:
+                # Usuário nunca rolou, não remove imediatamente
                 continue
 
-            # --- ✅ Lida com os 3 formatos possíveis ---
-            ultima_data = None
-            if isinstance(registro, dict):
-                if "datas" in registro:
-                    # Pega a mais recente da lista
-                    try:
-                        datas = [
-                            datetime.strptime(d, "%Y-%m-%d %H:%M:%S")
-                            for d in registro["datas"]
-                        ]
-                        ultima_data = max(datas)
-                    except Exception as e:
-                        print(f"⚠️ Erro ao processar lista de datas de {user_id}: {e}")
-                elif "data" in registro:
-                    try:
-                        ultima_data = datetime.strptime(registro["data"], "%Y-%m-%d %H:%M:%S")
-                    except Exception:
-                        pass
-            elif isinstance(registro, str):
-                try:
-                    ultima_data = datetime.strptime(registro, "%Y-%m-%d %H:%M:%S")
-                except Exception:
-                    pass
-
-            if not ultima_data:
+            try:
+                ultima_data = datetime.strptime(ultima_str, "%Y-%m-%d %H:%M:%S")
+            except Exception as e:
+                print(f"⚠️ Erro ao ler data de {user_id}: {e}")
                 continue
 
-            # --- 🕒 Verifica se passou o limite de inatividade ---
+            # Verifica se passou o limite de inatividade
             if (agora - ultima_data).days >= DIAS_INATIVIDADE:
                 remover_lista.append(user_id)
 
         for user_id in remover_lista:
+            # Pega o membro do guild
             usuario = guild.get_member(int(user_id))
-            usuario_mention = usuario.mention if usuario else "Usuário desconhecido"
+            if not usuario:
+                usuario_mention = "Usuário desconhecido"
+            else:
+                usuario_mention = usuario.mention
 
+            # Pega personagem e origem antes de remover
             personagem = imunes[guild_id][user_id]["personagem"]
             origem = imunes[guild_id][user_id]["origem"]
 
+            # Remove imunidade
             del imunes[guild_id][user_id]
             salvar_json(ARQUIVO_IMUNES, imunes)
 
+            # Aplica cooldown de 7 dias por inatividade
             definir_cooldown(user_id, dias=7)
 
+            # Envia aviso no canal configurado
             if canal:
                 await canal.send(
                     f"⚠️ {usuario_mention} perdeu a imunidade de **{personagem} ({origem})** "
                     f"por inatividade (sem roletar há {DIAS_INATIVIDADE}+ dias). "
                     f"Você não poderá adicionar outro personagem imune por 7 dias."
                 )
-
 
 
 # === COOLDOWN ===
@@ -289,7 +254,7 @@ def definir_cooldown(user_id, dias=3):
     expira_em = agora_brasil() + timedelta(days=dias)
     cooldowns[str(user_id)] = expira_em.strftime("%Y-%m-%d %H:%M:%S")
     salvar_json(ARQUIVO_COOLDOWN, cooldowns)
-    
+
 # === YOUTUBE ===
 CANAL_YOUTUBE = "UCcMSONDJxb18PW5B8cxYdzQ"  # ID do canal
 ARQUIVO_YOUTUBE = "youtube.json"  # arquivo para salvar vídeos já notificados
@@ -462,13 +427,13 @@ async def set_canal_imune(interaction: discord.Interaction):
 async def set_canal_youtube(interaction: discord.Interaction):
     config = carregar_json(ARQUIVO_CONFIG)
     guild_id = str(interaction.guild.id)
-    
+
     # Cria a chave "youtube" se não existir
     if "youtube" not in config:
         config["youtube"] = {}
     config["youtube"][guild_id] = interaction.channel.id
     salvar_json(ARQUIVO_CONFIG, config)
-    
+
     await interaction.response.send_message(
         f"✅ Canal do YouTube definido: {interaction.channel.mention}"
     )
@@ -577,42 +542,19 @@ async def atividade_status(interaction: discord.Interaction, pagina: int = 1):
         ativos, inativos = [], []
 
         for user_id, info in atividades.items():
-            nome_usuario = "Desconhecido"
-            ultima_data = None
-
-            # --- ✅ Lida com formatos diferentes ---
             if isinstance(info, dict):
+                ultima_str = info.get("data")
                 nome_usuario = info.get("usuario", "Desconhecido")
+            else:
+                ultima_str = info
+                nome_usuario = "Desconhecido"
 
-                # Formato novo: lista de datas
-                if "datas" in info:
-                    try:
-                        datas = [datetime.strptime(d, "%Y-%m-%d %H:%M:%S") for d in info["datas"]]
-                        ultima_data = max(datas)
-                    except Exception:
-                        continue
-
-                # Formato antigo: única data
-                elif "data" in info:
-                    try:
-                        ultima_data = datetime.strptime(info["data"], "%Y-%m-%d %H:%M:%S")
-                    except Exception:
-                        continue
-
-            elif isinstance(info, str):
-                # Caso o valor seja diretamente a string de data
-                try:
-                    ultima_data = datetime.strptime(info, "%Y-%m-%d %H:%M:%S")
-                except Exception:
-                    continue
-
-            if not ultima_data:
+            try:
+                ultima_atividade = datetime.strptime(ultima_str, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
                 continue
 
-            # --- 🕒 Cálculo da diferença ---
-            delta = agora - ultima_data
-            ultima_str = ultima_data.strftime("%Y-%m-%d %H:%M:%S")
-
+            delta = agora - ultima_atividade
             if delta < timedelta(days=3):
                 ativos.append(("🟢 Ativo", user_id, nome_usuario, ultima_str))
             else:
@@ -639,7 +581,6 @@ async def atividade_status(interaction: discord.Interaction, pagina: int = 1):
                     value=f"Última atividade: `{tempo}`",
                     inline=False
                 )
-
         return embed, total_paginas
 
     # === VIEW COM BOTÕES ===
@@ -667,13 +608,13 @@ async def atividade_status(interaction: discord.Interaction, pagina: int = 1):
 
         @discord.ui.button(label="🔄 Atualizar", style=discord.ButtonStyle.green)
         async def atualizar_lista(self, interaction_btn: discord.Interaction, button: Button):
+            # Recarrega tudo do JSON, mas mantém a página
             await self.atualizar(interaction_btn)
 
     # === Envia a primeira página ===
     embed, total_paginas = gerar_embed(pagina)
     view = AtividadeView(pagina)
     await interaction.response.send_message(embed=embed, view=view)
-
 
 @bot.tree.command(name="remover_com_cd", description="Remove um personagem da lista de imunes e aplica cooldown de 3 dias no dono.")
 @app_commands.describe(personagem="Nome do personagem a ser removido da lista de imunes.")
@@ -738,7 +679,7 @@ async def remover_com_cd(interaction: discord.Interaction, personagem: str):
 @bot.tree.command(name="testar_mudae", description="Testa a leitura da última embed enviada pela Mudae no canal.")
 async def testar_mudae_embed(interaction: discord.Interaction):
     await interaction.response.defer(thinking=True, ephemeral=False)
-    
+
     # Busca as últimas 10 mensagens do canal
     async for msg in interaction.channel.history(limit=10):
         if msg.author.bot and msg.author.name.lower() == "mudae" and msg.embeds:
@@ -747,7 +688,7 @@ async def testar_mudae_embed(interaction: discord.Interaction):
             descricao = embed.description or "(sem descrição)"
             autor = embed.author.name if embed.author and embed.author.name else "(sem autor)"
             footer = embed.footer.text if embed.footer and embed.footer.text else "(sem footer)"
-            
+
             await interaction.followup.send(
                 f"📦 **Embed da Mudae detectada!**\n"
                 f"**Autor:** {autor}\n"
@@ -871,50 +812,17 @@ async def on_message(message: discord.Message):
         return
 
     # === REGISTRA ATIVIDADE DO USUÁRIO ===
-    roll_prefixes = ("$w", "$wg", "$wa", "$ha", "$hg", "$h")
-
+    roll_prefixes = ("$w", "$wg", "$wa", "$wx", "$wl")
     if message.content.startswith(roll_prefixes):
         try:
             atividade = carregar_atividade()
-            user_id = str(message.author.id)
-            nome = message.author.name
-            agora = agora_brasil()
-            hoje_str = agora.strftime("%Y-%m-%d %H:%M:%S")
-
-            # Caso ainda não exista no JSON
-            if user_id not in atividade:
-                atividade[user_id] = {
-                    "usuario": nome,
-                    "datas": [hoje_str]
-                }
-            else:
-                dados = atividade[user_id]
-
-                # Converter formato antigo (com apenas "data") para o novo (com lista)
-                if "data" in dados:
-                    dados["datas"] = [dados["data"]]
-                    del dados["data"]
-
-                dados["usuario"] = nome
-                datas = dados.setdefault("datas", [])
-
-                # Evita duplicar se já houver atividade no mesmo dia
-                datas_formatadas = [
-                    datetime.strptime(d, "%Y-%m-%d %H:%M:%S") for d in datas
-                ]
-                if not any(d.date() == agora.date() for d in datas_formatadas):
-                    datas.append(hoje_str)
-
-                # Mantém apenas as últimas 10 datas (para não crescer infinito)
-                dados["datas"] = datas[-10:]
-
+            atividade[str(message.author.id)] = {
+                "usuario": message.author.name,
+                "data": agora_brasil().strftime("%Y-%m-%d %H:%M:%S")
+            }
             salvar_atividade(atividade)
-            print(f"✅ Atividade registrada para {nome} ({user_id})")
-
         except Exception as e:
             print(f"⚠️ Erro ao atualizar atividade de {message.author.id}: {e}")
-
-
 
 
     # ====================================
@@ -1158,7 +1066,7 @@ async def verificar_youtube():
 
         if "youtube" in config and str(guild.id) in config["youtube"]:
             canal_id = config["youtube"][str(guild.id)]
-        
+
         if canal_id:
             canal = guild.get_channel(canal_id)
             if canal:
