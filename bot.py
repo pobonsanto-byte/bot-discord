@@ -186,39 +186,6 @@ async def checar_atividade():
 
 
 
-@tasks.loop(hours=24)
-async def atualizar_historico_6dias():
-    """Atualiza o histórico de 6 dias mantendo apenas os últimos 6 registros diários."""
-    try:
-        atividades = carregar_atividade()
-        historico = carregar_historico()
-        hoje = agora_brasil().strftime("%Y-%m-%d")
-
-        # Gera lista de usuários ativos hoje
-        usuarios_ativos = {}
-        for user_id, info in atividades.items():
-            if isinstance(info, dict):
-                usuarios_ativos[user_id] = info.get("usuario", "Desconhecido")
-            else:
-                usuarios_ativos[user_id] = "Desconhecido"
-
-        # Adiciona o dia atual ao histórico
-        historico[hoje] = usuarios_ativos
-
-        # Remove dias antigos (mantém apenas os últimos 6)
-        dias_ordenados = sorted(historico.keys())
-        dias_validos = [d for d in dias_ordenados if re.match(r"\d{4}-\d{2}-\d{2}", d)]
-
-        if len(dias_validos) > 6:
-            for dia_antigo in dias_validos[:-6]:
-                del historico[dia_antigo]
-
-        salvar_historico(historico)
-        print(f"📆 Histórico de 6 dias atualizado ({len(dias_validos)} dias mantidos).")
-
-    except Exception as e:
-        print(f"⚠️ Erro ao atualizar histórico de 6 dias: {e}")
-
 @tasks.loop(hours=1)
 async def verificar_inatividade():
     agora = agora_brasil()
@@ -382,7 +349,6 @@ class ImuneBot(discord.Client):
         verificar_inatividade.start()
         checar_atividade.before_loop(self.wait_until_ready)
         checar_atividade.start()
-        atualizar_historico_6dias.start()
 
         # ✅ Executa o loop uma vez manualmente na inicialização
         await checar_atividade()
@@ -848,6 +814,35 @@ async def obter_ultima_embed_mudae(channel: discord.TextChannel):
             return autor, footer, descricao
     return None, None, None
 
+# === FUNÇÃO HISTÓRICO ===
+async def atualizar_historico_6dias():
+    """Atualiza o histórico de 6 dias mantendo apenas os últimos 6 registros diários."""
+    try:
+        atividades = carregar_atividade()
+        historico = carregar_historico()
+        hoje = agora_brasil().strftime("%Y-%m-%d")
+
+        usuarios_ativos = {}
+        for user_id, info in atividades.items():
+            if isinstance(info, dict):
+                usuarios_ativos[user_id] = info.get("usuario", "Desconhecido")
+            else:
+                usuarios_ativos[user_id] = "Desconhecido"
+
+        historico[hoje] = usuarios_ativos
+
+        dias_validos = sorted(
+            [d for d in historico.keys() if re.match(r"\d{4}-\d{2}-\d{2}", d)]
+        )
+        if len(dias_validos) > 6:
+            for dia_antigo in dias_validos[:-6]:
+                del historico[dia_antigo]
+
+        salvar_historico(historico)
+        print(f"📆 Histórico de 6 dias atualizado ({len(dias_validos)} dias mantidos).")
+
+    except Exception as e:
+        print(f"⚠️ Erro ao atualizar histórico de 6 dias: {e}")
 
 # === EVENTOS ===
 @bot.event
