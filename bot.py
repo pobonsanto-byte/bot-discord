@@ -916,26 +916,20 @@ async def obter_ultima_embed_mudae(channel: discord.TextChannel):
 # === EVENTOS === 
 @bot.event
 async def on_message(message: discord.Message):
-    # Ignora qualquer bot que não seja a Mudae
     if message.author.bot and message.author.name.lower() != "mudae":
         return
 
-    # ====================================
-    # === NOVO DETECTOR AUTOMÁTICO DE $IMAO
-    # ====================================
+    # === Coleta automática de séries com $imao ===
     if message.content.lower().startswith("$imao "):
-
-        # Só executa no canal permitido
-        canais_permitidos = [1430256427967975526]  # IDs dos canais onde o comando é válido
+        canais_permitidos = [1430256427967975526]  # IDs dos canais permitidos
         if message.channel.id not in canais_permitidos:
             return
 
-        # Nome da série digitada (ex: "$imao wuthering waves")
         partes = message.content.split(" ", 1)
         if len(partes) < 2:
             return
-        nome_serie = partes[1].strip().lower()
 
+        nome_serie = partes[1].strip().lower()
         await message.channel.send(f"🔍 Iniciando coleta da série `{nome_serie}`... aguardando páginas da Mudae.")
 
         series = carregar_json("series.json")
@@ -943,11 +937,11 @@ async def on_message(message: discord.Message):
             series[nome_serie] = {}
 
         paginas_coletadas = 0
-        tempo_espera = 25  # tempo total para esperar novas páginas (em segundos)
+        mensagens_processadas = set()
+        tempo_espera = 30
         inicio = asyncio.get_event_loop().time()
 
         def processar_embed(embed: discord.Embed):
-            """Lê personagens do embed e salva"""
             nonlocal paginas_coletadas
             descricao = embed.description or ""
             linhas = descricao.split("\n")
@@ -969,33 +963,53 @@ async def on_message(message: discord.Message):
                 return personagens_encontrados
             return 0
 
-        # 1️⃣ Primeiro, coleta páginas recentes do histórico
-        async for msg in message.channel.history(limit=20):
-            if msg.author.bot and msg.author.name.lower() == "mudae" and msg.embeds:
+        async def coletar_embeds_mudae(msg: discord.Message):
+            """Coleta os embeds de uma mensagem da Mudae."""
+            if msg.id in mensagens_processadas:
+                return 0
+            mensagens_processadas.add(msg.id)
+            if msg.embeds:
                 embed = msg.embeds[0]
-                personagens = processar_embed(embed)
+                return processar_embed(embed)
+            return 0
+
+        # 1️⃣ Coleta histórico recente
+        async for msg in message.channel.history(limit=10):
+            if msg.author.bot and msg.author.name.lower() == "mudae":
+                personagens = await coletar_embeds_mudae(msg)
                 if personagens > 0:
                     await message.channel.send(f"📄 Página {paginas_coletadas} coletada ({personagens} personagens).")
 
-        # 2️⃣ Agora espera novas mensagens em tempo real
+        # 2️⃣ Monitora novas mensagens e edições da Mudae
         while True:
             tempo_restante = tempo_espera - (asyncio.get_event_loop().time() - inicio)
             if tempo_restante <= 0:
                 break
 
             try:
-                nova_msg = await bot.wait_for(
-                    "message",
-                    timeout=tempo_restante,
-                    check=lambda m: m.author.bot
-                    and m.author.name.lower() == "mudae"
-                    and m.channel.id == message.channel.id
-                    and m.embeds
+                done, pending = await asyncio.wait(
+                    [
+                        bot.wait_for("message", timeout=tempo_restante,
+                                     check=lambda m: m.author.bot and m.author.name.lower() == "mudae"
+                                     and m.channel.id == message.channel.id),
+                        bot.wait_for("message_edit", timeout=tempo_restante,
+                                     check=lambda before, after: after.author.bot
+                                     and after.author.name.lower() == "mudae"
+                                     and after.channel.id == message.channel.id)
+                    ],
+                    return_when=asyncio.FIRST_COMPLETED
                 )
-                embed = nova_msg.embeds[0]
-                personagens = processar_embed(embed)
-                if personagens > 0:
-                    await message.channel.send(f"📄 Página {paginas_coletadas} coletada ({personagens} personagens).")
+
+                for fut in done:
+                    result = fut.result()
+                    if isinstance(result, discord.Message):
+                        msg = result
+                    else:
+                        before, msg = result
+
+                    personagens = await coletar_embeds_mudae(msg)
+                    if personagens > 0:
+                        await message.channel.send(f"📄 Página {paginas_coletadas} coletada ({personagens} personagens).")
 
             except asyncio.TimeoutError:
                 break
@@ -1004,11 +1018,7 @@ async def on_message(message: discord.Message):
         await message.channel.send(
             f"✅ **Coleta finalizada!** Série: `{nome_serie}` — Total de **{paginas_coletadas} páginas** processadas."
         )
-        print(f"✅ Dados do $imao de '{nome_serie}' salvos/atualizados com sucesso ({paginas_coletadas} páginas).")
-
-
-
-
+        print(f"✅ Coleta concluída para '{nome_serie}' ({paginas_coletadas} páginas).")
 
             
     # ====================================
