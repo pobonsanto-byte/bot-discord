@@ -913,7 +913,7 @@ async def obter_ultima_embed_mudae(channel: discord.TextChannel):
     return None, None, None
 
 
-# === EVENTOS ===
+# === EVENTOS === 
 @bot.event
 async def on_message(message: discord.Message):
     # Ignora qualquer bot que não seja a Mudae
@@ -921,67 +921,91 @@ async def on_message(message: discord.Message):
         return
 
     # ====================================
-    # === DETECTOR AUTOMÁTICO DE $IMAO (página por página)
+    # === NOVO DETECTOR AUTOMÁTICO DE $IMAO
     # ====================================
     if message.content.lower().startswith("$imao "):
 
-        canais_permitidos = [1430256427967975526]  # canal permitido
+        # Só executa no canal permitido
+        canais_permitidos = [1430256427967975526]  # IDs dos canais onde o comando é válido
         if message.channel.id not in canais_permitidos:
             return
 
+        # Nome da série digitada (ex: "$imao wuthering waves")
         partes = message.content.split(" ", 1)
         if len(partes) < 2:
             return
         nome_serie = partes[1].strip().lower()
+
+        await message.channel.send(f"🔍 Iniciando coleta da série `{nome_serie}`... aguardando páginas da Mudae.")
 
         series = carregar_json("series.json")
         if nome_serie not in series:
             series[nome_serie] = {}
 
         paginas_coletadas = 0
-        await message.channel.send(f"🔍 Iniciando coleta da série `{nome_serie}`... aguardando páginas da Mudae.")
+        tempo_espera = 25  # tempo total para esperar novas páginas (em segundos)
+        inicio = asyncio.get_event_loop().time()
 
-        def check_mudae(msg):
-            return msg.author.bot and msg.author.name.lower() == "mudae" and msg.embeds and msg.channel == message.channel
+        def processar_embed(embed: discord.Embed):
+            """Lê personagens do embed e salva"""
+            nonlocal paginas_coletadas
+            descricao = embed.description or ""
+            linhas = descricao.split("\n")
+            personagens_encontrados = 0
 
-        try:
-            while True:
-                # Espera uma nova mensagem da Mudae (timeout de 20s)
-                msg = await bot.wait_for("message", check=check_mudae, timeout=20)
+            for linha in linhas:
+                match = re.search(r"(.+?)\s*💞?\s*=>\s*(.+)", linha)
+                if match:
+                    personagem, usuario = match.groups()
+                    usuario = usuario.strip().replace("@", "").replace("<", "").replace(">", "")
+                    if usuario not in series[nome_serie]:
+                        series[nome_serie][usuario] = []
+                    if personagem not in series[nome_serie][usuario]:
+                        series[nome_serie][usuario].append(personagem)
+                        personagens_encontrados += 1
 
+            if personagens_encontrados > 0:
+                paginas_coletadas += 1
+                return personagens_encontrados
+            return 0
+
+        # 1️⃣ Primeiro, coleta páginas recentes do histórico
+        async for msg in message.channel.history(limit=20):
+            if msg.author.bot and msg.author.name.lower() == "mudae" and msg.embeds:
                 embed = msg.embeds[0]
-                if not embed.description:
-                    continue
+                personagens = processar_embed(embed)
+                if personagens > 0:
+                    await message.channel.send(f"📄 Página {paginas_coletadas} coletada ({personagens} personagens).")
 
-                descricao = embed.description
-                linhas = descricao.split("\n")
-                personagens_encontrados = 0
+        # 2️⃣ Agora espera novas mensagens em tempo real
+        while True:
+            tempo_restante = tempo_espera - (asyncio.get_event_loop().time() - inicio)
+            if tempo_restante <= 0:
+                break
 
-                for linha in linhas:
-                    match = re.search(r"(.+?)\s*💞?\s*=>\s*(.+)", linha)
-                    if match:
-                        personagem, usuario = match.groups()
-                        usuario = usuario.strip().replace("@", "").replace("<", "").replace(">", "")
-                        if usuario not in series[nome_serie]:
-                            series[nome_serie][usuario] = []
-                        if personagem not in series[nome_serie][usuario]:
-                            series[nome_serie][usuario].append(personagem)
-                            personagens_encontrados += 1
+            try:
+                nova_msg = await bot.wait_for(
+                    "message",
+                    timeout=tempo_restante,
+                    check=lambda m: m.author.bot
+                    and m.author.name.lower() == "mudae"
+                    and m.channel.id == message.channel.id
+                    and m.embeds
+                )
+                embed = nova_msg.embeds[0]
+                personagens = processar_embed(embed)
+                if personagens > 0:
+                    await message.channel.send(f"📄 Página {paginas_coletadas} coletada ({personagens} personagens).")
 
-                if personagens_encontrados > 0:
-                    paginas_coletadas += 1
-                    await message.channel.send(
-                        f"📄 **Página {paginas_coletadas} coletada!** ({personagens_encontrados} personagens encontrados)"
-                    )
+            except asyncio.TimeoutError:
+                break
 
-                salvar_json("series.json", series)
+        salvar_json("series.json", series)
+        await message.channel.send(
+            f"✅ **Coleta finalizada!** Série: `{nome_serie}` — Total de **{paginas_coletadas} páginas** processadas."
+        )
+        print(f"✅ Dados do $imao de '{nome_serie}' salvos/atualizados com sucesso ({paginas_coletadas} páginas).")
 
-        except asyncio.TimeoutError:
-            # Se passar 20 segundos sem nova página, finaliza a coleta
-            await message.channel.send(
-                f"✅ **Coleta finalizada!** Série: `{nome_serie}` — Total de **{paginas_coletadas} páginas** processadas."
-            )
-            print(f"✅ Coleta de '{nome_serie}' finalizada ({paginas_coletadas} páginas).")
 
 
 
