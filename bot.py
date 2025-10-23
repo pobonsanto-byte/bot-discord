@@ -919,106 +919,85 @@ async def on_message(message: discord.Message):
     if message.author.bot and message.author.name.lower() != "mudae":
         return
 
-    # === Coleta automática de séries com $imao ===
     if message.content.lower().startswith("$imao "):
-        canais_permitidos = [1430256427967975526]  # IDs dos canais permitidos
+        canais_permitidos = [1430256427967975526]
         if message.channel.id not in canais_permitidos:
             return
 
+        # nome da série
         partes = message.content.split(" ", 1)
         if len(partes) < 2:
             return
-
         nome_serie = partes[1].strip().lower()
-        await message.channel.send(f"🔍 Iniciando coleta da série `{nome_serie}`... aguardando páginas da Mudae.")
 
         series = carregar_json("series.json")
         if nome_serie not in series:
             series[nome_serie] = {}
 
+        await message.channel.send(f"🔍 Iniciando coleta da série `{nome_serie}`... aguardando páginas da Mudae.")
+
         paginas_coletadas = 0
-        mensagens_processadas = set()
-        tempo_espera = 30
-        inicio = asyncio.get_event_loop().time()
+        personagens_total = 0
+        ultima_mensagem_mudae = None
 
-        def processar_embed(embed: discord.Embed):
-            nonlocal paginas_coletadas
-            descricao = embed.description or ""
-            linhas = descricao.split("\n")
-            personagens_encontrados = 0
+        def eh_mudae_edit(before, after):
+            return (
+                after.author.bot
+                and after.author.name.lower() == "mudae"
+                and after.embeds
+                and after.channel == message.channel
+            )
 
-            for linha in linhas:
-                match = re.search(r"(.+?)\s*💞?\s*=>\s*(.+)", linha)
-                if match:
-                    personagem, usuario = match.groups()
-                    usuario = usuario.strip().replace("@", "").replace("<", "").replace(">", "")
-                    if usuario not in series[nome_serie]:
-                        series[nome_serie][usuario] = []
-                    if personagem not in series[nome_serie][usuario]:
-                        series[nome_serie][usuario].append(personagem)
-                        personagens_encontrados += 1
+        try:
+            # Espera a primeira mensagem da Mudae
+            msg_mudae = await bot.wait_for(
+                "message",
+                check=lambda m: m.author.bot and m.author.name.lower() == "mudae" and m.embeds,
+                timeout=30,
+            )
+            ultima_mensagem_mudae = msg_mudae
+            print(f"[DEBUG] Primeira mensagem da Mudae detectada: {msg_mudae.id}")
 
-            if personagens_encontrados > 0:
-                paginas_coletadas += 1
-                return personagens_encontrados
-            return 0
+            while True:
+                await asyncio.sleep(1)
 
-        async def coletar_embeds_mudae(msg: discord.Message):
-            """Coleta os embeds de uma mensagem da Mudae."""
-            if msg.id in mensagens_processadas:
-                return 0
-            mensagens_processadas.add(msg.id)
-            if msg.embeds:
-                embed = msg.embeds[0]
-                return processar_embed(embed)
-            return 0
+                embed = ultima_mensagem_mudae.embeds[0]
+                descricao = embed.description or ""
+                linhas = descricao.split("\n")
 
-        # 1️⃣ Coleta histórico recente
-        async for msg in message.channel.history(limit=10):
-            if msg.author.bot and msg.author.name.lower() == "mudae":
-                personagens = await coletar_embeds_mudae(msg)
-                if personagens > 0:
-                    await message.channel.send(f"📄 Página {paginas_coletadas} coletada ({personagens} personagens).")
+                personagens_encontrados = 0
+                for linha in linhas:
+                    match = re.search(r"(.+?)\s*💞?\s*=>\s*(.+)", linha)
+                    if match:
+                        personagem, usuario = match.groups()
+                        usuario = usuario.strip().replace("@", "").replace("<", "").replace(">", "")
+                        if usuario not in series[nome_serie]:
+                            series[nome_serie][usuario] = []
+                        if personagem not in series[nome_serie][usuario]:
+                            series[nome_serie][usuario].append(personagem)
+                            personagens_encontrados += 1
+                            personagens_total += 1
 
-        # 2️⃣ Monitora novas mensagens e edições da Mudae
-        while True:
-            tempo_restante = tempo_espera - (asyncio.get_event_loop().time() - inicio)
-            if tempo_restante <= 0:
-                break
+                if personagens_encontrados > 0:
+                    paginas_coletadas += 1
+                    await message.channel.send(f"📄 Página {paginas_coletadas} coletada ({personagens_encontrados} personagens).")
 
-            try:
-                done, pending = await asyncio.wait(
-                    [
-                        bot.wait_for("message", timeout=tempo_restante,
-                                     check=lambda m: m.author.bot and m.author.name.lower() == "mudae"
-                                     and m.channel.id == message.channel.id),
-                        bot.wait_for("message_edit", timeout=tempo_restante,
-                                     check=lambda before, after: after.author.bot
-                                     and after.author.name.lower() == "mudae"
-                                     and after.channel.id == message.channel.id)
-                    ],
-                    return_when=asyncio.FIRST_COMPLETED
-                )
+                # Aguarda nova edição da Mudae
+                try:
+                    before, after = await bot.wait_for("message_edit", check=eh_mudae_edit, timeout=20)
+                    ultima_mensagem_mudae = after
+                    print(f"[DEBUG] Nova edição detectada (mensagem {after.id})")
+                except asyncio.TimeoutError:
+                    print("[DEBUG] Timeout sem novas edições — encerrando coleta.")
+                    break
 
-                for fut in done:
-                    result = fut.result()
-                    if isinstance(result, discord.Message):
-                        msg = result
-                    else:
-                        before, msg = result
+            salvar_json("series.json", series)
+            await message.channel.send(
+                f"✅ Coleta finalizada! Série: `{nome_serie}` — Total de **{paginas_coletadas} páginas** e **{personagens_total} personagens**."
+            )
 
-                    personagens = await coletar_embeds_mudae(msg)
-                    if personagens > 0:
-                        await message.channel.send(f"📄 Página {paginas_coletadas} coletada ({personagens} personagens).")
-
-            except asyncio.TimeoutError:
-                break
-
-        salvar_json("series.json", series)
-        await message.channel.send(
-            f"✅ **Coleta finalizada!** Série: `{nome_serie}` — Total de **{paginas_coletadas} páginas** processadas."
-        )
-        print(f"✅ Coleta concluída para '{nome_serie}' ({paginas_coletadas} páginas).")
+        except asyncio.TimeoutError:
+            await message.channel.send("⚠️ Nenhuma resposta da Mudae após 30s. Tente novamente.")
 
             
     # ====================================
