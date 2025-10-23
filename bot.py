@@ -891,10 +891,10 @@ async def obter_ultima_embed_mudae(channel: discord.TextChannel):
     return None, None, None
 
 
-# === EVENTOS ===
+# === EVENTOS === 
 @bot.event
 async def on_message(message: discord.Message):
-    # Ignora bots que não sejam a Mudae
+    # Ignora qualquer bot que não seja a Mudae
     if message.author.bot and message.author.name.lower() != "mudae":
         return
 
@@ -902,7 +902,13 @@ async def on_message(message: discord.Message):
     # === NOVO DETECTOR AUTOMÁTICO DE $IMAO
     # ====================================
     if message.content.lower().startswith("$imao "):
-        await asyncio.sleep(10)  # espera todas as páginas da Mudae aparecerem
+
+        # Só executa no canal permitido
+        canais_permitidos = [1430256427967975526]  # IDs dos canais onde o comando é válido
+        if message.channel.id not in canais_permitidos:
+            return
+
+        await asyncio.sleep(10)  # espera a Mudae enviar as páginas
 
         try:
             # nome da série digitada (ex: "$imao wuthering waves")
@@ -915,38 +921,33 @@ async def on_message(message: discord.Message):
             if nome_serie not in series:
                 series[nome_serie] = {}
 
-            # busca as últimas mensagens da Mudae no canal (pode ajustar limit se quiser)
-            mensagens_mudae = []
-            async for msg in message.channel.history(limit=20):  # pega várias páginas
+            # busca as últimas mensagens da Mudae no canal
+            async for msg in message.channel.history(limit=16):
                 if msg.author.bot and msg.author.name.lower() == "mudae" and msg.embeds:
                     embed = msg.embeds[0]
-                    if embed.title and nome_serie.split()[0] in embed.title.lower():
-                        mensagens_mudae.append(embed)
+                    if not embed.description:
+                        continue
 
-            if not mensagens_mudae:
-                print(f"⚠️ Nenhum embed encontrado para {nome_serie}")
-                return
+                    descricao = embed.description or ""
+                    linhas = descricao.split("\n")
 
-            # === Lê todas as páginas ===
-            for embed in mensagens_mudae:
-                descricao = embed.description or ""
-                linhas = descricao.split("\n")
-
-                for linha in linhas:
-                    match = re.search(r"(.+?)\s*💞?\s*=>\s*(.+)", linha)
-                    if match:
-                        personagem, usuario = match.groups()
-                        usuario = usuario.strip().replace("@", "").replace("<", "").replace(">", "")
-                        if usuario not in series[nome_serie]:
-                            series[nome_serie][usuario] = []
-                        if personagem not in series[nome_serie][usuario]:
-                            series[nome_serie][usuario].append(personagem)
+                    for linha in linhas:
+                        match = re.search(r"(.+?)\s*💞?\s*=>\s*(.+)", linha)
+                        if match:
+                            personagem, usuario = match.groups()
+                            usuario = usuario.strip().replace("@", "").replace("<", "").replace(">", "")
+                            if usuario not in series[nome_serie]:
+                                series[nome_serie][usuario] = []
+                            if personagem not in series[nome_serie][usuario]:
+                                series[nome_serie][usuario].append(personagem)
 
             salvar_json("series.json", series)
-            print(f"✅ Dados do $imao de '{nome_serie}' salvos/atualizados com sucesso ({len(mensagens_mudae)} páginas lidas).")
+            print(f"✅ Dados do $imao de '{nome_serie}' salvos/atualizados com sucesso.")
 
         except Exception as e:
             print(f"[ERRO] ao processar $imao: {e}")
+
+
             
     # ====================================
     # === ATUALIZAÇÃO DE ATIVIDADE
