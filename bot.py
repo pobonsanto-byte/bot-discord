@@ -154,7 +154,6 @@ async def checar_atividade():
             embed = discord.Embed(
                 title="📊 Relatório de Atividade da Mudae (Últimos 6 dias)",
                 color=discord.Color.blurple(),
-                timestamp=agora
             )
 
             if ativos:
