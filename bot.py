@@ -26,6 +26,7 @@ ARQUIVO_ATIVIDADE = "atividade.json"
 DIAS_INATIVIDADE = 3  # 🕒 define quantos dias sem roletar remove imunidade
 ARQUIVO_LOG_ATIVIDADE = "log_atividade.json"
 ARQUIVO_ATIVIDADE_6DIAS = "atividade_6dias.json"
+ARQUIVO_SERIES = "series.json"
 
 # === CONFIG GITHUB ===
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
@@ -88,6 +89,16 @@ def carregar_atividade_6dias():
 
 def salvar_atividade_6dias(dados):
     salvar_json(ARQUIVO_ATIVIDADE_6DIAS, dados)
+
+# === FUNÇÕES AUXILIARES DE SÉRIES ===
+def carregar_series():
+    """Carrega o arquivo de séries do GitHub."""
+    dados = carregar_json(ARQUIVO_SERIES)
+    return dados if dados else {}
+
+def salvar_series(series):
+    """Salva o arquivo de séries no GitHub."""
+    salvar_json(ARQUIVO_SERIES, series)
 
 
 # === LOOP DE CHECAGEM DE ATIVIDADE MELHORADO ===
@@ -336,6 +347,7 @@ class ImuneBot(discord.Client):
         intents.guilds = True
         intents.message_content = True
         intents.members = True
+        bot = commands.Bot(command_prefix="$", intents=intents)
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
 
@@ -413,6 +425,31 @@ class ListaImunesView(View):
             await i.response.edit_message(embed=self.gerar_embed(), view=self)
 
 # === COMANDOS ADMIN ===
+@bot.tree.command(name="add_serie", description="Adiciona uma série ou jogo para o sistema de ranking (somente administradores)")
+@app_commands.describe(nome="Nome da série ou jogo (ex: Genshin Impact, Wuthering Waves)")
+@app_commands.checks.has_permissions(administrator=True)
+async def add_serie(interaction: discord.Interaction, nome: str):
+    series = carregar_series()
+    nome = nome.strip()
+
+    if nome in series:
+        await interaction.response.send_message(f"⚠️ A série **{nome}** já está cadastrada.", ephemeral=True)
+        return
+
+    series[nome] = []
+    salvar_series(series)
+    await interaction.response.send_message(f"✅ Série **{nome}** adicionada com sucesso!", ephemeral=True)
+
+# Caso o usuário não tenha permissão:
+@add_serie.error
+async def add_serie_error(interaction: discord.Interaction, error):
+    if isinstance(error, app_commands.errors.MissingPermissions):
+        await interaction.response.send_message(
+            "❌ Você precisa ser **administrador** para usar este comando.",
+            ephemeral=True
+        )
+
+
 @bot.tree.command(name="set_log", description="Define o canal de log de atividade (apenas administradores).")
 @app_commands.checks.has_permissions(administrator=True)
 async def set_log(interaction: discord.Interaction):
@@ -525,6 +562,66 @@ async def resetar_cooldown(interaction: discord.Interaction, usuario: discord.Me
     )
 
 # === COMANDOS PADRÃO ===
+# === /rank_serie ===
+@bot.tree.command(name="rank_serie", description="Mostra o ranking de quem tem mais personagens de uma série/jogo")
+@app_commands.describe(nome="Nome da série ou jogo que deseja ver o ranking")
+async def rank_serie(interaction: discord.Interaction, nome: str):
+    series = carregar_series()
+    nome = nome.strip()
+
+    if nome not in series:
+        await interaction.response.send_message(
+            f"❌ A série **{nome}** não está cadastrada. Use `/add_serie {nome}` primeiro.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.defer(thinking=True)
+
+    # === Busca mensagens do Mudae ($imao) ===
+    mensagens = []
+    async for msg in interaction.channel.history(limit=100):
+        if msg.author.name.lower() == "mudae" and msg.embeds:
+            embed = msg.embeds[0]
+            if embed.title and "$imao" in embed.title.lower():
+                mensagens.append(msg)
+
+    if not mensagens:
+        await interaction.followup.send("⚠️ Nenhum embed recente do `$imao` foi encontrado neste canal.")
+        return
+
+    contagem = {}
+    for msg in mensagens:
+        embed = msg.embeds[0]
+        texto = embed.description or ""
+        for field in embed.fields:
+            texto += "\n" + (field.value or "")
+
+        # === Filtra apenas personagens da série ===
+        for personagem, user_id in REGEX_PERSONAGEM.findall(texto):
+            if nome.lower() in personagem.lower():
+                contagem[user_id] = contagem.get(user_id, 0) + 1
+
+    if not contagem:
+        await interaction.followup.send(f"⚠️ Nenhum personagem encontrado da série **{nome}**.")
+        return
+
+    # === Monta ranking ===
+    ranking = sorted(contagem.items(), key=lambda x: x[1], reverse=True)
+    linhas = []
+    for i, (user_id, qtd) in enumerate(ranking[:10], 1):
+        membro = interaction.guild.get_member(int(user_id))
+        nome_membro = membro.display_name if membro else f"Usuário ({user_id})"
+        linhas.append(f"**#{i}** — {nome_membro}: {qtd} personagens")
+
+    embed = discord.Embed(
+        title=f"🏆 Ranking — {nome}",
+        description="\n".join(linhas),
+        color=discord.Color.gold()
+    )
+
+    await interaction.followup.send(embed=embed)
+
 @bot.tree.command(name="atividade_status", description="Exibe o status de atividade dos usuários (somente IDs autorizados).")
 async def atividade_status(interaction: discord.Interaction, pagina: int = 1):
     IDS_AUTORIZADOS = [292756862020091906, 289801244653125634]
@@ -813,12 +910,53 @@ async def obter_ultima_embed_mudae(channel: discord.TextChannel):
             return autor, footer, descricao
     return None, None, None
 
+# === REGEX PARA CAPTURAR PERSONAGENS DO $imao ===
+REGEX_PERSONAGEM = re.compile(r"(.+?) — <@!?(\d+)>")
+
+async def processar_imao(message: discord.Message):
+    """Lê a lista do $imao e salva os personagens no arquivo de séries."""
+    try:
+        linhas = message.content.split("\n")
+        series = carregar_json("series.json")
+
+        # Detecta série a partir do comando ($imao NomeDaSérie)
+        partes = message.content.split(" ", 1)
+        if len(partes) < 2:
+            return
+        nome_serie = partes[1].strip().lower()
+
+        if nome_serie not in series:
+            series[nome_serie] = {}
+
+        # Usa regex pra capturar (personagem, user_id)
+        for linha in linhas:
+            match = REGEX_PERSONAGEM.search(linha)
+            if match:
+                personagem, user_id = match.groups()
+
+                if user_id not in series[nome_serie]:
+                    series[nome_serie][user_id] = []
+
+                if personagem not in series[nome_serie][user_id]:
+                    series[nome_serie][user_id].append(personagem)
+
+        salvar_json("series.json", series)
+        print(f"✅ Série '{nome_serie}' atualizada com {len(linhas)} linhas lidas.")
+
+    except Exception as e:
+        print(f"[ERRO] processar_imao: {e}")
+
+
 # === EVENTOS ===
 @bot.event
 async def on_message(message: discord.Message):
     # Ignora bots que não sejam a Mudae
     if message.author.bot and message.author.name.lower() != "mudae":
         return
+        
+    # === Captura mensagens do $imao ===
+    if message.content.startswith("$imao"):
+        await processar_imao(message)
 
     roll_prefixes = ("$w", "$wg", "$wa", "$ha", "$hg", "$h")
     if message.content.startswith(roll_prefixes):
@@ -856,8 +994,7 @@ async def on_message(message: discord.Message):
         except Exception as e:
             print(f"⚠️ Erro ao atualizar histórico: {e}")
 
-    # Não esqueça de permitir que outros comandos funcionem
-    await bot.process_commands(message)
+
 
 
 
