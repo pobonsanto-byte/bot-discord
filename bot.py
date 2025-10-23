@@ -931,9 +931,6 @@ async def on_message(message: discord.Message):
     # Ignora bots que não sejam a Mudae
     if message.author.bot and message.author.name.lower() != "mudae":
         return
-    # === PROCESSA LISTAS DO $IMAO (mensagens da MUDAE) ===
-    if message.author.bot and message.author.name.lower() == "mudae":
-        await processar_imao(message)
     # ====================================
     # === NOVO DETECTOR AUTOMÁTICO DE $IMAO
     # ====================================
