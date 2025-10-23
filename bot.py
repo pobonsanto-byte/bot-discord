@@ -924,7 +924,6 @@ async def on_message(message: discord.Message):
         if message.channel.id not in canais_permitidos:
             return
 
-        # nome da série
         partes = message.content.split(" ", 1)
         if len(partes) < 2:
             return
@@ -949,14 +948,21 @@ async def on_message(message: discord.Message):
             )
 
         try:
-            # Espera a primeira mensagem da Mudae
-            msg_mudae = await bot.wait_for(
-                "message",
-                check=lambda m: m.author.bot and m.author.name.lower() == "mudae" and m.embeds,
-                timeout=30,
-            )
-            ultima_mensagem_mudae = msg_mudae
-            print(f"[DEBUG] Primeira mensagem da Mudae detectada: {msg_mudae.id}")
+            # Primeiro tenta achar mensagem da Mudae já existente
+            async for msg in message.channel.history(limit=10):
+                if msg.author.bot and msg.author.name.lower() == "mudae" and msg.embeds:
+                    ultima_mensagem_mudae = msg
+                    print(f"[DEBUG] Mensagem da Mudae encontrada no histórico ({msg.id})")
+                    break
+
+            # Se não achou, espera uma nova mensagem
+            if not ultima_mensagem_mudae:
+                ultima_mensagem_mudae = await bot.wait_for(
+                    "message",
+                    check=lambda m: m.author.bot and m.author.name.lower() == "mudae" and m.embeds,
+                    timeout=30,
+                )
+                print(f"[DEBUG] Mensagem da Mudae recebida ({ultima_mensagem_mudae.id})")
 
             while True:
                 await asyncio.sleep(1)
@@ -980,20 +986,22 @@ async def on_message(message: discord.Message):
 
                 if personagens_encontrados > 0:
                     paginas_coletadas += 1
-                    await message.channel.send(f"📄 Página {paginas_coletadas} coletada ({personagens_encontrados} personagens).")
+                    await message.channel.send(
+                        f"📄 Página {paginas_coletadas} coletada ({personagens_encontrados} personagens)."
+                    )
 
-                # Aguarda nova edição da Mudae
+                # Aguarda nova edição (mudança de página)
                 try:
                     before, after = await bot.wait_for("message_edit", check=eh_mudae_edit, timeout=20)
                     ultima_mensagem_mudae = after
-                    print(f"[DEBUG] Nova edição detectada (mensagem {after.id})")
+                    print(f"[DEBUG] Nova edição detectada ({after.id})")
                 except asyncio.TimeoutError:
                     print("[DEBUG] Timeout sem novas edições — encerrando coleta.")
                     break
 
             salvar_json("series.json", series)
             await message.channel.send(
-                f"✅ Coleta finalizada! Série: `{nome_serie}` — Total de **{paginas_coletadas} páginas** e **{personagens_total} personagens**."
+                f"✅ Coleta finalizada! Série: `{nome_serie}` — **{paginas_coletadas} páginas** e **{personagens_total} personagens** processados."
             )
 
         except asyncio.TimeoutError:
