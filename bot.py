@@ -931,6 +931,7 @@ async def on_message(message: discord.Message):
     # Ignora bots que não sejam a Mudae
     if message.author.bot and message.author.name.lower() != "mudae":
         return
+
     # ====================================
     # === NOVO DETECTOR AUTOMÁTICO DE $IMAO
     # ====================================
@@ -952,7 +953,7 @@ async def on_message(message: discord.Message):
             async for msg in message.channel.history(limit=8):
                 if msg.author.bot and msg.author.name.lower() == "mudae" and msg.embeds:
                     embed = msg.embeds[0]
-                    if not embed.title or nome_serie.split()[0] not in embed.title.lower():
+                    if not embed.description:
                         continue
 
                     descricao = embed.description or ""
@@ -970,8 +971,13 @@ async def on_message(message: discord.Message):
 
             salvar_json("series.json", series)
             print(f"✅ Dados do $imao de '{nome_serie}' salvos/atualizados com sucesso.")
-   
 
+        except Exception as e:
+            print(f"[ERRO] ao processar $imao: {e}")
+
+    # ====================================
+    # === ATUALIZAÇÃO DE ATIVIDADE
+    # ====================================
     roll_prefixes = ("$w", "$wg", "$wa", "$ha", "$hg", "$h")
     if message.content.startswith(roll_prefixes):
         try:
@@ -1007,6 +1013,7 @@ async def on_message(message: discord.Message):
 
         except Exception as e:
             print(f"⚠️ Erro ao atualizar histórico: {e}")
+
                         
 
     # ====================================
