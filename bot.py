@@ -931,84 +931,49 @@ async def on_message(message: discord.Message):
     # Ignora bots que não sejam a Mudae
     if message.author.bot and message.author.name.lower() != "mudae":
         return
-    # ====================================
-    # === NOVO DETECTOR AUTOMÁTICO DE $IMAO
-    # ====================================
     if message.content.lower().startswith("$imao "):
-        await asyncio.sleep(5)  # espera a Mudae enviar as páginas
+    await asyncio.sleep(5)  # espera a Mudae enviar as páginas
 
-        try:
-            # nome da série digitada (ex: "$imao wuthering waves")
-            partes = message.content.split(" ", 1)
-            if len(partes) < 2:
-                return
-            nome_serie = partes[1].strip().lower()
+    try:
+        # nome da série digitada (ex: "$imao wuthering waves")
+        partes = message.content.split(" ", 1)
+        if len(partes) < 2:
+            return
+        nome_serie = partes[1].strip().lower()
 
-            series = carregar_json("series.json")
-            if nome_serie not in series:
-                series[nome_serie] = {}
+        series = carregar_json("series.json")
+        if nome_serie not in series:
+            series[nome_serie] = {}
 
-            # busca as últimas mensagens da Mudae no canal
-            async for msg in message.channel.history(limit=8):
-                if msg.author.bot and msg.author.name.lower() == "mudae" and msg.embeds:
-                    embed = msg.embeds[0]
-                    if not embed.title or nome_serie.split()[0] not in embed.title.lower():
-                        continue
+        # busca as últimas mensagens da Mudae no canal
+        async for msg in message.channel.history(limit=10):
+            if msg.author.bot and msg.author.name.lower() == "mudae" and msg.embeds:
+                embed = msg.embeds[0]
+                if not embed.description:
+                    continue
 
-                    descricao = embed.description or ""
-                    linhas = descricao.split("\n")
+                linhas = embed.description.split("\n")
+                for linha in linhas:
+                    match = re.search(r"(.+?)\s*💞?\s*=>\s*(<@!?(\d+)>|@?[\w\s]+)", linha)
+                    if match:
+                        personagem = match.group(1).strip()
+                        usuario_raw = match.group(2).strip()
 
-                    for linha in linhas:
-                        match = re.search(r"(.+?)\s*💞?\s*=>\s*(.+)", linha)
-                        if match:
-                            personagem, usuario = match.groups()
-                            usuario = usuario.strip().replace("@", "").replace("<", "").replace(">", "")
-                            if usuario not in series[nome_serie]:
-                                series[nome_serie][usuario] = []
-                            if personagem not in series[nome_serie][usuario]:
-                                series[nome_serie][usuario].append(personagem)
+                        # Normaliza o nome do usuário
+                        usuario = usuario_raw.replace("<", "").replace(">", "").replace("@", "").replace("!", "").strip()
 
-            salvar_json("series.json", series)
-            print(f"✅ Dados do $imao de '{nome_serie}' salvos/atualizados com sucesso.")
+                        if usuario not in series[nome_serie]:
+                            series[nome_serie][usuario] = []
+                        if personagem not in series[nome_serie][usuario]:
+                            series[nome_serie][usuario].append(personagem)
 
-        except Exception as e:
-            print(f"[ERRO] ao processar $imao: {e}")
+        salvar_json("series.json", series)
+        print(f"✅ Dados do $imao de '{nome_serie}' salvos/atualizados com sucesso.")
 
-    roll_prefixes = ("$w", "$wg", "$wa", "$ha", "$hg", "$h")
-    if message.content.startswith(roll_prefixes):
-        try:
-            # === Atualiza atividade individual ===
-            atividade = carregar_json(ARQUIVO_ATIVIDADE)
-            atividade[str(message.author.id)] = {
-                "usuario": message.author.name,
-                "data": agora_brasil().strftime("%Y-%m-%d %H:%M:%S")
-            }
-            salvar_json(ARQUIVO_ATIVIDADE, atividade)
+    except Exception as e:
+        print(f"[ERRO] ao processar $imao: {e}")
 
-            # === Atualiza histórico dos últimos 6 dias ===
-            historico = carregar_json(ARQUIVO_ATIVIDADE_6DIAS)
-            hoje = agora_brasil().strftime("%Y-%m-%d")
-
-            # Se o dia ainda não existe, cria
-            if hoje not in historico:
-                historico[hoje] = {}
-
-            # Marca o usuário como ativo hoje
-            historico[hoje][str(message.author.id)] = message.author.name
-
-            # Mantém apenas os últimos 6 dias
-            dias_validos = sorted(
-                [d for d in historico.keys() if re.match(r"\d{4}-\d{2}-\d{2}", d)]
-            )
-            if len(dias_validos) > 6:
-                for dia_antigo in dias_validos[:-6]:
-                    del historico[dia_antigo]
-
-            salvar_json(ARQUIVO_ATIVIDADE_6DIAS, historico)
-            print(f"📆 Histórico de 6 dias atualizado ({len(historico)} dias mantidos).")
-
-        except Exception as e:
-            print(f"⚠️ Erro ao atualizar histórico: {e}")
+    
 
 
 
