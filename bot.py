@@ -866,8 +866,17 @@ async def on_message(message: discord.Message):
                 "data": agora_brasil().strftime("%Y-%m-%d %H:%M:%S")
             }
             salvar_atividade(atividade)
+
+            # 🔄 Atualiza imediatamente o histórico de 6 dias
+            try:
+                await atualizar_historico_6dias()
+            except Exception as e:
+                print(f"⚠️ Erro ao atualizar histórico de 6 dias após rolagem: {e}")
+
         except Exception as e:
             print(f"⚠️ Erro ao atualizar atividade de {message.author.id}: {e}")
+
+
 
 
     # ====================================
