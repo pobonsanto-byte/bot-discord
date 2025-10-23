@@ -925,28 +925,31 @@ async def obter_ultima_embed_mudae(channel: discord.TextChannel):
     return None, None, None
 
 # === REGEX PARA CAPTURAR PERSONAGENS DO $imao ===
-REGEX_PERSONAGEM = re.compile(r"(.+?) — <@!?(\d+)>")
+REGEX_PERSONAGEM = re.compile(r"(.+?) 💞?=> <@!?(\d+)>")
 
 async def processar_imao(message: discord.Message):
     """Lê a lista do $imao e salva os personagens no arquivo de séries."""
     try:
-        linhas = message.content.split("\n")
-        series = carregar_json("series.json")
+        if not message.embeds:
+            return  # ignora se não tiver embed (ou seja, não é mensagem do Mudae)
 
-        # Detecta série a partir do comando ($imao NomeDaSérie)
-        partes = message.content.split(" ", 1)
-        if len(partes) < 2:
+        embed = message.embeds[0]
+        if not embed.title or not embed.description:
             return
-        nome_serie = partes[1].strip().lower()
 
+        # Nome da série vem do título do embed (ex: "Wuthering Waves  21/59")
+        nome_serie = embed.title.split("  ")[0].strip().lower()
+        linhas = embed.description.split("\n")
+
+        series = carregar_json("series.json")
         if nome_serie not in series:
             series[nome_serie] = {}
 
-        # Usa regex pra capturar (personagem, user_id)
         for linha in linhas:
             match = REGEX_PERSONAGEM.search(linha)
             if match:
                 personagem, user_id = match.groups()
+                user_id = str(user_id)
 
                 if user_id not in series[nome_serie]:
                     series[nome_serie][user_id] = []
@@ -961,15 +964,15 @@ async def processar_imao(message: discord.Message):
         print(f"[ERRO] processar_imao: {e}")
 
 
+
 # === EVENTOS ===
 @bot.event
 async def on_message(message: discord.Message):
     # Ignora bots que não sejam a Mudae
     if message.author.bot and message.author.name.lower() != "mudae":
         return
-        
-    # === Captura mensagens do $imao ===
-    if message.content.startswith("$imao"):
+    # === PROCESSA LISTAS DO $IMAO (mensagens da MUDAE) ===
+    if message.author.bot and message.author.name.lower() == "mudae":
         await processar_imao(message)
 
     roll_prefixes = ("$w", "$wg", "$wa", "$ha", "$hg", "$h")
