@@ -814,41 +814,6 @@ async def obter_ultima_embed_mudae(channel: discord.TextChannel):
             return autor, footer, descricao
     return None, None, None
 
-# === FUNÇÃO HISTÓRICO ===
-async def atualizar_historico_6dias():
-    """Atualiza o histórico de 6 dias mantendo apenas os últimos 6 registros diários."""
-    try:
-        atividades = carregar_atividade()
-        historico = carregar_historico()
-        hoje = agora_brasil().strftime("%Y-%m-%d")
-
-        print(f"🧠 Atualizando histórico... {hoje}")  # debug
-
-        # Gera lista de usuários ativos hoje
-        usuarios_ativos = {}
-        for user_id, info in atividades.items():
-            if isinstance(info, dict):
-                usuarios_ativos[user_id] = info.get("usuario", "Desconhecido")
-            else:
-                usuarios_ativos[user_id] = "Desconhecido"
-
-        # Adiciona ou atualiza o dia atual
-        historico[hoje] = usuarios_ativos
-
-        # Mantém apenas os últimos 6 dias
-        dias_validos = sorted(
-            [d for d in historico.keys() if re.match(r"\d{4}-\d{2}-\d{2}", d)]
-        )
-        if len(dias_validos) > 6:
-            for dia_antigo in dias_validos[:-6]:
-                del historico[dia_antigo]
-
-        salvar_historico(historico)
-        print(f"📆 Histórico de 6 dias atualizado ({len(dias_validos)} dias mantidos).")
-
-    except Exception as e:
-        print(f"⚠️ Erro ao atualizar histórico de 6 dias: {e}")
-
 # === EVENTOS ===
 @bot.event
 async def on_message(message: discord.Message):
@@ -856,25 +821,44 @@ async def on_message(message: discord.Message):
     if message.author.bot and message.author.name.lower() != "mudae":
         return
 
-    # === REGISTRA ATIVIDADE DO USUÁRIO ===
     roll_prefixes = ("$w", "$wg", "$wa", "$ha", "$hg", "$h")
     if message.content.startswith(roll_prefixes):
         try:
-            atividade = carregar_atividade()
+            # === Atualiza atividade individual ===
+            atividade = carregar_json(ARQUIVO_ATIVIDADE)
             atividade[str(message.author.id)] = {
                 "usuario": message.author.name,
                 "data": agora_brasil().strftime("%Y-%m-%d %H:%M:%S")
             }
-            salvar_atividade(atividade)
+            salvar_json(ARQUIVO_ATIVIDADE, atividade)
 
-            # 🔄 Atualiza imediatamente o histórico de 6 dias
-            try:
-                await atualizar_historico_6dias()
-            except Exception as e:
-                print(f"⚠️ Erro ao atualizar histórico de 6 dias após rolagem: {e}")
+            # === Atualiza histórico dos últimos 6 dias ===
+            historico = carregar_json(ARQUIVO_ATIVIDADE_6DIAS)
+            hoje = agora_brasil().strftime("%Y-%m-%d")
+
+            # Se o dia ainda não existe, cria
+            if hoje not in historico:
+                historico[hoje] = {}
+
+            # Marca o usuário como ativo hoje
+            historico[hoje][str(message.author.id)] = message.author.name
+
+            # Mantém apenas os últimos 6 dias
+            dias_validos = sorted(
+                [d for d in historico.keys() if re.match(r"\d{4}-\d{2}-\d{2}", d)]
+            )
+            if len(dias_validos) > 6:
+                for dia_antigo in dias_validos[:-6]:
+                    del historico[dia_antigo]
+
+            salvar_json(ARQUIVO_ATIVIDADE_6DIAS, historico)
+            print(f"📆 Histórico de 6 dias atualizado ({len(historico)} dias mantidos).")
 
         except Exception as e:
-            print(f"⚠️ Erro ao atualizar atividade de {message.author.id}: {e}")
+            print(f"⚠️ Erro ao atualizar histórico: {e}")
+
+    # Não esqueça de permitir que outros comandos funcionem
+    await bot.process_commands(message)
 
 
 
