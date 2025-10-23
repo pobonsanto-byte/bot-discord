@@ -924,44 +924,49 @@ async def obter_ultima_embed_mudae(channel: discord.TextChannel):
             return autor, footer, descricao
     return None, None, None
 
-# === REGEX PARA CAPTURAR PERSONAGENS DO $imao ===
-REGEX_PERSONAGEM = re.compile(r"(.+?) 💞?=> <@!?(\d+)>")
+# ====================================
+# === NOVO DETECTOR AUTOMÁTICO DE $IMAO
+# ====================================
+if message.content.lower().startswith("$imao "):
+    await asyncio.sleep(5)  # espera a Mudae enviar as páginas
 
-async def processar_imao(message: discord.Message):
-    """Lê a lista do $imao e salva os personagens no arquivo de séries."""
     try:
-        if not message.embeds:
-            return  # ignora se não tiver embed (ou seja, não é mensagem do Mudae)
-
-        embed = message.embeds[0]
-        if not embed.title or not embed.description:
+        # nome da série digitada (ex: "$imao wuthering waves")
+        partes = message.content.split(" ", 1)
+        if len(partes) < 2:
             return
-
-        # Nome da série vem do título do embed (ex: "Wuthering Waves  21/59")
-        nome_serie = embed.title.split("  ")[0].strip().lower()
-        linhas = embed.description.split("\n")
+        nome_serie = partes[1].strip().lower()
 
         series = carregar_json("series.json")
         if nome_serie not in series:
             series[nome_serie] = {}
 
-        for linha in linhas:
-            match = REGEX_PERSONAGEM.search(linha)
-            if match:
-                personagem, user_id = match.groups()
-                user_id = str(user_id)
+        # busca as últimas mensagens da Mudae no canal
+        async for msg in message.channel.history(limit=8):
+            if msg.author.bot and msg.author.name.lower() == "mudae" and msg.embeds:
+                embed = msg.embeds[0]
+                if not embed.title or nome_serie.split()[0] not in embed.title.lower():
+                    continue
 
-                if user_id not in series[nome_serie]:
-                    series[nome_serie][user_id] = []
+                descricao = embed.description or ""
+                linhas = descricao.split("\n")
 
-                if personagem not in series[nome_serie][user_id]:
-                    series[nome_serie][user_id].append(personagem)
+                for linha in linhas:
+                    match = re.search(r"(.+?)\s*💞?\s*=>\s*(.+)", linha)
+                    if match:
+                        personagem, usuario = match.groups()
+                        usuario = usuario.strip().replace("@", "").replace("<", "").replace(">", "")
+                        if usuario not in series[nome_serie]:
+                            series[nome_serie][usuario] = []
+                        if personagem not in series[nome_serie][usuario]:
+                            series[nome_serie][usuario].append(personagem)
 
         salvar_json("series.json", series)
-        print(f"✅ Série '{nome_serie}' atualizada com {len(linhas)} linhas lidas.")
+        print(f"✅ Dados do $imao de '{nome_serie}' salvos/atualizados com sucesso.")
 
     except Exception as e:
-        print(f"[ERRO] processar_imao: {e}")
+        print(f"[ERRO] ao processar $imao: {e}")
+
 
 
 
