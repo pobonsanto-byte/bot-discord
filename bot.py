@@ -98,7 +98,7 @@ async def checar_atividade():
     try:
         logs = carregar_json(ARQUIVO_LOG_ATIVIDADE)
         atividades = carregar_atividade()
-        historico = carregar_json("atividade_6dias.json")
+        historico = carregar_json(ARQUIVO_ATIVIDADE_6DIAS)
         agora = agora_brasil()
 
         for guild in bot.guilds:
@@ -822,6 +822,9 @@ async def atualizar_historico_6dias():
         historico = carregar_historico()
         hoje = agora_brasil().strftime("%Y-%m-%d")
 
+        print(f"🧠 Atualizando histórico... {hoje}")  # debug
+
+        # Gera lista de usuários ativos hoje
         usuarios_ativos = {}
         for user_id, info in atividades.items():
             if isinstance(info, dict):
@@ -829,8 +832,10 @@ async def atualizar_historico_6dias():
             else:
                 usuarios_ativos[user_id] = "Desconhecido"
 
+        # Adiciona ou atualiza o dia atual
         historico[hoje] = usuarios_ativos
 
+        # Mantém apenas os últimos 6 dias
         dias_validos = sorted(
             [d for d in historico.keys() if re.match(r"\d{4}-\d{2}-\d{2}", d)]
         )
