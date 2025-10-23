@@ -425,43 +425,30 @@ class ListaImunesView(View):
             await i.response.edit_message(embed=self.gerar_embed(), view=self)
 
 # === COMANDOS ADMIN ===
-@bot.tree.command(name="add_serie", description="Adiciona uma nova série ou jogo à lista de monitoramento ($imao).")
-@app_commands.describe(nome="Nome da série ou jogo a ser monitorado.")
-async def add_serie(interaction: discord.Interaction, nome: str):
-    # ID do usuário que também tem permissão (além dos administradores)
-    ID_PERMITIDO = 289801244653125634  
+@bot.tree.command(name="add_serie", description="Adiciona uma nova série à lista de séries.")
+async def add_serie(interaction: discord.Interaction, nome_serie: str):
+    ADMIN_ID = 289801244653125634  # ID autorizado extra
 
-    # Verifica se o usuário é admin OU o ID é o permitido
-    if not interaction.user.guild_permissions.administrator and interaction.user.id != ID_PERMITIDO:
-        await interaction.response.send_message("❌ Você não tem permissão para usar este comando.", ephemeral=True)
+    # Verifica permissão (admin ou ID específico)
+    if not interaction.user.guild_permissions.administrator and interaction.user.id != ADMIN_ID:
+        await interaction.response.send_message("🚫 Você não tem permissão para usar este comando.", ephemeral=True)
         return
 
-    try:
-        nome_normalizado = nome.strip().lower()
-        series = carregar_json("series.json")
+    nome_serie = nome_serie.lower().strip()
+    series = carregar_json("series.json")
 
-        if nome_normalizado in series:
-            await interaction.response.send_message(f"⚠️ A série **{nome}** já existe na lista.", ephemeral=True)
-            return
-
-        # Cria a entrada
-        series[nome_normalizado] = {}
-        salvar_json("series.json", series)
-
-        await interaction.response.send_message(f"✅ Série **{nome}** adicionada com sucesso!", ephemeral=False)
-
-    except Exception as e:
-        await interaction.response.send_message(f"❌ Erro ao adicionar série: {e}", ephemeral=True)
-
-
-# Caso o usuário não tenha permissão:
-@add_serie.error
-async def add_serie_error(interaction: discord.Interaction, error):
-    if isinstance(error, app_commands.errors.MissingPermissions):
+    if nome_serie in series:
         await interaction.response.send_message(
-            "❌ Você precisa ser **administrador** para usar este comando.",
-            ephemeral=True
+            f"⚠️ A série **{nome_serie.title()}** já existe na lista.", ephemeral=True
         )
+        return
+
+    series[nome_serie] = {}
+    salvar_json("series.json", series)
+    await interaction.response.send_message(
+        f"✅ Série **{nome_serie.title()}** adicionada com sucesso!", ephemeral=True
+    )
+
 
 
 @bot.tree.command(name="set_log", description="Define o canal de log de atividade (apenas administradores).")
@@ -577,59 +564,38 @@ async def resetar_cooldown(interaction: discord.Interaction, usuario: discord.Me
 
 # === COMANDOS PADRÃO ===
 # === /rank_serie ===
-@bot.tree.command(name="rank_serie", description="Mostra o ranking de quem tem mais personagens de uma série/jogo")
+@bot.tree.command(name="rank_serie", description="Mostra o ranking de quem tem mais personagens de uma série/jogo.")
 @app_commands.describe(nome="Nome da série ou jogo que deseja ver o ranking")
 async def rank_serie(interaction: discord.Interaction, nome: str):
-    series = carregar_series()
-    nome = nome.strip()
+    await interaction.response.defer(thinking=True)
+
+    series = carregar_json("series.json")
+    nome = nome.lower().strip()
 
     if nome not in series:
-        await interaction.response.send_message(
-            f"❌ A série **{nome}** não está cadastrada. Use `/add_serie {nome}` primeiro.",
+        await interaction.followup.send(
+            f"❌ A série **{nome.title()}** não está cadastrada. Use `/add_serie {nome.title()}` primeiro.",
             ephemeral=True
         )
         return
 
-    await interaction.response.defer(thinking=True)
-
-    # === Busca mensagens do Mudae ($imao) ===
-    mensagens = []
-    async for msg in interaction.channel.history(limit=100):
-        if msg.author.name.lower() == "mudae" and msg.embeds:
-            embed = msg.embeds[0]
-            if embed.title and "$imao" in embed.title.lower():
-                mensagens.append(msg)
-
-    if not mensagens:
-        await interaction.followup.send("⚠️ Nenhum embed recente do `$imao` foi encontrado neste canal.")
+    dados = series[nome]
+    if not dados:
+        await interaction.followup.send(
+            f"⚠️ Nenhum personagem registrado ainda para **{nome.title()}**.",
+            ephemeral=True
+        )
         return
 
-    contagem = {}
-    for msg in mensagens:
-        embed = msg.embeds[0]
-        texto = embed.description or ""
-        for field in embed.fields:
-            texto += "\n" + (field.value or "")
+    # === Monta ranking com base no número de personagens ===
+    ranking = sorted(dados.items(), key=lambda x: len(x[1]), reverse=True)
 
-        # === Filtra apenas personagens da série ===
-        for personagem, user_id in REGEX_PERSONAGEM.findall(texto):
-            if nome.lower() in personagem.lower():
-                contagem[user_id] = contagem.get(user_id, 0) + 1
-
-    if not contagem:
-        await interaction.followup.send(f"⚠️ Nenhum personagem encontrado da série **{nome}**.")
-        return
-
-    # === Monta ranking ===
-    ranking = sorted(contagem.items(), key=lambda x: x[1], reverse=True)
     linhas = []
-    for i, (user_id, qtd) in enumerate(ranking[:10], 1):
-        membro = interaction.guild.get_member(int(user_id))
-        nome_membro = membro.display_name if membro else f"Usuário ({user_id})"
-        linhas.append(f"**#{i}** — {nome_membro}: {qtd} personagens")
+    for i, (usuario, personagens) in enumerate(ranking[:10], 1):
+        linhas.append(f"**#{i}** — {usuario}: {len(personagens)} personagens")
 
     embed = discord.Embed(
-        title=f"🏆 Ranking — {nome}",
+        title=f"🏆 Ranking — {nome.title()}",
         description="\n".join(linhas),
         color=discord.Color.gold()
     )
