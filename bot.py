@@ -25,6 +25,7 @@ ARQUIVO_YOUTUBE = "youtube.json"
 ARQUIVO_ATIVIDADE = "atividade.json"
 DIAS_INATIVIDADE = 3  # 🕒 define quantos dias sem roletar remove imunidade
 ARQUIVO_LOG_ATIVIDADE = "log_atividade.json"
+ARQUIVO_ATIVIDADE_6DIAS = "atividade_6dias.json"
 
 # === CONFIG GITHUB ===
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
@@ -82,14 +83,22 @@ def salvar_atividade(dados):
     """Salva o arquivo de atividade no GitHub."""
     salvar_json(ARQUIVO_ATIVIDADE, dados)
 
-# === LOOP DE CHECAGEM DE ATIVIDADE ===
+def carregar_atividade_6dias():
+    return carregar_json(ARQUIVO_ATIVIDADE_6DIAS)
+
+def salvar_atividade_6dias(dados):
+    salvar_json(ARQUIVO_ATIVIDADE_6DIAS, dados)
+
+
+# === LOOP DE CHECAGEM DE ATIVIDADE MELHORADO ===
 @tasks.loop(hours=3)
 async def checar_atividade():
     print("🔄 Executando checar_atividade()...")
-    """Verifica quem está inativo ou apenas rolando a cada 3 dias e envia avisos no canal de log."""
+    """Analisa o histórico dos últimos 6 dias + última atividade para detectar inatividade real e padrão suspeito."""
     try:
         logs = carregar_json(ARQUIVO_LOG_ATIVIDADE)
         atividades = carregar_atividade()
+        historico = carregar_json("atividade_6dias.json")
         agora = agora_brasil()
 
         for guild in bot.guilds:
@@ -102,11 +111,11 @@ async def checar_atividade():
             if not canal:
                 continue
 
+            ativos = []
+            irregulares = []
             inativos = []
-            suspeitos = []
 
             for user_id, valor in atividades.items():
-                # Detecta se é {"usuario": "...", "data": "..."} ou apenas string
                 if isinstance(valor, dict):
                     ultima_str = valor.get("data")
                 else:
@@ -124,34 +133,47 @@ async def checar_atividade():
                 membro = guild.get_member(int(user_id))
                 nome = membro.mention if membro else f"Usuário ({user_id})"
 
-                # ⚠️ Inativo há 3 dias ou mais
-                if delta.days >= 3:
+                # === Análise com base no histórico ===
+                dias_ativos = 0
+                for dia, registros in historico.items():
+                    if isinstance(registros, dict) and user_id in registros:
+                        dias_ativos += 1
+
+                # Classificação
+                if dias_ativos >= 3 and delta.days < 3:
+                    ativos.append(f"🟢 {nome} — ativo {dias_ativos}/6 dias")
+                elif 1 < dias_ativos <= 2 and delta.days < 3:
+                    irregulares.append(f"🟡 {nome} — ativo {dias_ativos}/6 dias (padrão suspeito)")
+                elif delta.days >= 3:
                     inativos.append(f"🔴 {nome} — {delta.days} dias sem roletar")
 
-                # ⚠️ Ativo, mas com padrão de 3 dias (suspeito de burla)
-                elif 1 < delta.days <= 3:
-                    suspeitos.append(f"🟡 {nome} — rolando a cada {delta.days} dias")
-
-            # Se não há nada para reportar, pula o envio
-            if not inativos and not suspeitos:
+            # Se nada pra reportar, pula
+            if not (ativos or irregulares or inativos):
                 continue
 
             embed = discord.Embed(
-                title="📊 Relatório de Atividade da Mudae",
-                color=discord.Color.orange(),
+                title="📊 Relatório de Atividade da Mudae (Últimos 6 dias)",
+                color=discord.Color.blurple(),
                 timestamp=agora
             )
 
-            if suspeitos:
+            if ativos:
                 embed.add_field(
-                    name="⚠️ Jogadores com rolagens suspeitas:",
-                    value="\n".join(suspeitos),
+                    name="🟢 Jogadores Ativos:",
+                    value="\n".join(ativos[:10]) + ("..." if len(ativos) > 10 else ""),
+                    inline=False
+                )
+
+            if irregulares:
+                embed.add_field(
+                    name="⚠️ Jogadores com Atividade Irregular:",
+                    value="\n".join(irregulares),
                     inline=False
                 )
 
             if inativos:
                 embed.add_field(
-                    name="❌ Jogadores inativos (sem roletar há 3+ dias):",
+                    name="❌ Jogadores Inativos (3+ dias):",
                     value="\n".join(inativos),
                     inline=False
                 )
@@ -162,18 +184,40 @@ async def checar_atividade():
     except Exception as e:
         print(f"[ERRO] checar_atividade: {e}")
 
-async def rodar_checar_atividade_uma_vez():
-    print("🚀 Executando checar_atividade() na inicialização...")
+
+
+@tasks.loop(hours=24)
+async def atualizar_historico_6dias():
+    """Atualiza o histórico de 6 dias mantendo apenas os últimos 6 registros diários."""
     try:
-        # ✅ Método correto nas versões novas do discord.py
-        await checar_atividade.coro()
-    except AttributeError:
-        # 🔁 Compatível com versões antigas
-        await checar_atividade()
+        atividades = carregar_atividade()
+        historico = carregar_historico()
+        hoje = agora_brasil().strftime("%Y-%m-%d")
 
+        # Gera lista de usuários ativos hoje
+        usuarios_ativos = {}
+        for user_id, info in atividades.items():
+            if isinstance(info, dict):
+                usuarios_ativos[user_id] = info.get("usuario", "Desconhecido")
+            else:
+                usuarios_ativos[user_id] = "Desconhecido"
 
+        # Adiciona o dia atual ao histórico
+        historico[hoje] = usuarios_ativos
 
+        # Remove dias antigos (mantém apenas os últimos 6)
+        dias_ordenados = sorted(historico.keys())
+        dias_validos = [d for d in dias_ordenados if re.match(r"\d{4}-\d{2}-\d{2}", d)]
 
+        if len(dias_validos) > 6:
+            for dia_antigo in dias_validos[:-6]:
+                del historico[dia_antigo]
+
+        salvar_historico(historico)
+        print(f"📆 Histórico de 6 dias atualizado ({len(dias_validos)} dias mantidos).")
+
+    except Exception as e:
+        print(f"⚠️ Erro ao atualizar histórico de 6 dias: {e}")
 
 @tasks.loop(hours=1)
 async def verificar_inatividade():
@@ -338,6 +382,7 @@ class ImuneBot(discord.Client):
         verificar_inatividade.start()
         checar_atividade.before_loop(self.wait_until_ready)
         checar_atividade.start()
+        atualizar_historico_6dias.start()
 
         # ✅ Executa o loop uma vez manualmente na inicialização
         await rodar_checar_atividade_uma_vez()
@@ -812,7 +857,7 @@ async def on_message(message: discord.Message):
         return
 
     # === REGISTRA ATIVIDADE DO USUÁRIO ===
-    roll_prefixes = ("$w", "$wg", "$wa", "$wx", "$wl")
+    roll_prefixes = ("$w", "$wg", "$wa", "$ha", "$hg", "$h")
     if message.content.startswith(roll_prefixes):
         try:
             atividade = carregar_atividade()
