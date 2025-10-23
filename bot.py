@@ -924,51 +924,6 @@ async def obter_ultima_embed_mudae(channel: discord.TextChannel):
             return autor, footer, descricao
     return None, None, None
 
-# ====================================
-# === NOVO DETECTOR AUTOMÁTICO DE $IMAO
-# ====================================
-if message.content.lower().startswith("$imao "):
-    await asyncio.sleep(5)  # espera a Mudae enviar as páginas
-
-    try:
-        # nome da série digitada (ex: "$imao wuthering waves")
-        partes = message.content.split(" ", 1)
-        if len(partes) < 2:
-            return
-        nome_serie = partes[1].strip().lower()
-
-        series = carregar_json("series.json")
-        if nome_serie not in series:
-            series[nome_serie] = {}
-
-        # busca as últimas mensagens da Mudae no canal
-        async for msg in message.channel.history(limit=8):
-            if msg.author.bot and msg.author.name.lower() == "mudae" and msg.embeds:
-                embed = msg.embeds[0]
-                if not embed.title or nome_serie.split()[0] not in embed.title.lower():
-                    continue
-
-                descricao = embed.description or ""
-                linhas = descricao.split("\n")
-
-                for linha in linhas:
-                    match = re.search(r"(.+?)\s*💞?\s*=>\s*(.+)", linha)
-                    if match:
-                        personagem, usuario = match.groups()
-                        usuario = usuario.strip().replace("@", "").replace("<", "").replace(">", "")
-                        if usuario not in series[nome_serie]:
-                            series[nome_serie][usuario] = []
-                        if personagem not in series[nome_serie][usuario]:
-                            series[nome_serie][usuario].append(personagem)
-
-        salvar_json("series.json", series)
-        print(f"✅ Dados do $imao de '{nome_serie}' salvos/atualizados com sucesso.")
-
-    except Exception as e:
-        print(f"[ERRO] ao processar $imao: {e}")
-
-
-
 
 # === EVENTOS ===
 @bot.event
@@ -979,6 +934,48 @@ async def on_message(message: discord.Message):
     # === PROCESSA LISTAS DO $IMAO (mensagens da MUDAE) ===
     if message.author.bot and message.author.name.lower() == "mudae":
         await processar_imao(message)
+    # ====================================
+    # === NOVO DETECTOR AUTOMÁTICO DE $IMAO
+    # ====================================
+    if message.content.lower().startswith("$imao "):
+        await asyncio.sleep(5)  # espera a Mudae enviar as páginas
+
+        try:
+            # nome da série digitada (ex: "$imao wuthering waves")
+            partes = message.content.split(" ", 1)
+            if len(partes) < 2:
+                return
+            nome_serie = partes[1].strip().lower()
+
+            series = carregar_json("series.json")
+            if nome_serie not in series:
+                series[nome_serie] = {}
+
+            # busca as últimas mensagens da Mudae no canal
+            async for msg in message.channel.history(limit=8):
+                if msg.author.bot and msg.author.name.lower() == "mudae" and msg.embeds:
+                    embed = msg.embeds[0]
+                    if not embed.title or nome_serie.split()[0] not in embed.title.lower():
+                        continue
+
+                    descricao = embed.description or ""
+                    linhas = descricao.split("\n")
+
+                    for linha in linhas:
+                        match = re.search(r"(.+?)\s*💞?\s*=>\s*(.+)", linha)
+                        if match:
+                            personagem, usuario = match.groups()
+                            usuario = usuario.strip().replace("@", "").replace("<", "").replace(">", "")
+                            if usuario not in series[nome_serie]:
+                                series[nome_serie][usuario] = []
+                            if personagem not in series[nome_serie][usuario]:
+                                series[nome_serie][usuario].append(personagem)
+
+            salvar_json("series.json", series)
+            print(f"✅ Dados do $imao de '{nome_serie}' salvos/atualizados com sucesso.")
+
+        except Exception as e:
+            print(f"[ERRO] ao processar $imao: {e}")
 
     roll_prefixes = ("$w", "$wg", "$wa", "$ha", "$hg", "$h")
     if message.content.startswith(roll_prefixes):
