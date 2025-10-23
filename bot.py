@@ -930,7 +930,7 @@ async def on_message(message: discord.Message):
         if message.channel.id not in canais_permitidos:
             return
 
-        await asyncio.sleep(60)  # espera a Mudae enviar as páginas
+        await asyncio.sleep(5)  # espera a Mudae enviar as páginas
 
         try:
             # nome da série digitada (ex: "$imao wuthering waves")
