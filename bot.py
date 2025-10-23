@@ -930,10 +930,10 @@ async def on_message(message: discord.Message):
         if message.channel.id not in canais_permitidos:
             return
 
-        await asyncio.sleep(6)  # espera a Mudae enviar as páginas
+        await asyncio.sleep(30)  # espera a Mudae enviar as páginas
 
         try:
-            # nome da série digitada (ex: "$imao zenless zone zero")
+            # nome da série digitada (ex: "$imao wuthering waves")
             partes = message.content.split(" ", 1)
             if len(partes) < 2:
                 return
@@ -943,49 +943,42 @@ async def on_message(message: discord.Message):
             if nome_serie not in series:
                 series[nome_serie] = {}
 
-            paginas_coletadas = 0
-            mensagens_encontradas = []
+            paginas_coletadas = 0  # contador de páginas processadas
 
-            # Coleta todas as mensagens recentes da Mudae no canal
-            async for msg in message.channel.history(limit=50, oldest_first=True):  # oldest_first = ordem cronológica
+            # busca as últimas mensagens da Mudae no canal
+            async for msg in message.channel.history(limit=20):  # aumenta limite p/ garantir todas as páginas
                 if msg.author.bot and msg.author.name.lower() == "mudae" and msg.embeds:
                     embed = msg.embeds[0]
-                    # Confirma que é da série correta
-                    if embed.title and nome_serie.split()[0] in embed.title.lower():
-                        mensagens_encontradas.append(msg)
+                    if not embed.description:
+                        continue
 
-            # Processa cada embed da série
-            for i, msg in enumerate(mensagens_encontradas, start=1):
-                embed = msg.embeds[0]
-                descricao = embed.description or ""
-                if not descricao.strip():
-                    continue
+                    descricao = embed.description or ""
+                    linhas = descricao.split("\n")
 
-                linhas = descricao.split("\n")
-                personagens_encontrados = 0
+                    personagens_encontrados = 0
+                    for linha in linhas:
+                        match = re.search(r"(.+?)\s*💞?\s*=>\s*(.+)", linha)
+                        if match:
+                            personagem, usuario = match.groups()
+                            usuario = usuario.strip().replace("@", "").replace("<", "").replace(">", "")
+                            if usuario not in series[nome_serie]:
+                                series[nome_serie][usuario] = []
+                            if personagem not in series[nome_serie][usuario]:
+                                series[nome_serie][usuario].append(personagem)
+                                personagens_encontrados += 1
 
-                for linha in linhas:
-                    match = re.search(r"(.+?)\s*💞?\s*=>\s*(.+)", linha)
-                    if match:
-                        personagem, usuario = match.groups()
-                        usuario = usuario.strip().replace("@", "").replace("<", "").replace(">", "")
-                        if usuario not in series[nome_serie]:
-                            series[nome_serie][usuario] = []
-                        if personagem not in series[nome_serie][usuario]:
-                            series[nome_serie][usuario].append(personagem)
-                            personagens_encontrados += 1
-
-                if personagens_encontrados > 0:
-                    paginas_coletadas += 1
-                    await message.channel.send(
-                        f"📄 **Página {i} coletada!** ({personagens_encontrados} personagens encontrados)"
-                    )
+                    # Se achou personagens, considera uma página processada
+                    if personagens_encontrados > 0:
+                        paginas_coletadas += 1
+                        await message.channel.send(
+                            f"📄 **Página {paginas_coletadas} coletada!** ({personagens_encontrados} personagens encontrados)"
+                        )
 
             salvar_json("series.json", series)
             await message.channel.send(
-                f"✅ **Coleta finalizada!** Série: `{nome_serie}` — Total de **{paginas_coletadas} páginas processadas.**"
+                f"✅ **Coleta finalizada!** Série: `{nome_serie}` — Total de **{paginas_coletadas} páginas** processadas."
             )
-            print(f"✅ {paginas_coletadas} páginas processadas para '{nome_serie}'.")
+            print(f"✅ Dados do $imao de '{nome_serie}' salvos/atualizados com sucesso ({paginas_coletadas} páginas).")
 
         except Exception as e:
             print(f"[ERRO] ao processar $imao: {e}")
