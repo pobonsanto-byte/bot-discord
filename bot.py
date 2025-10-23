@@ -912,7 +912,6 @@ async def on_message(message: discord.Message):
 
         except Exception as e:
             print(f"⚠️ Erro ao atualizar atividade de {message.author.id}: {e}")
-)
 
 
 
