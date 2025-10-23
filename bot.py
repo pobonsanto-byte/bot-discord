@@ -592,7 +592,7 @@ async def rank_serie(interaction: discord.Interaction, nome: str):
 
     linhas = []
     for i, (usuario, personagens) in enumerate(ranking[:10], 1):
-        linhas.append(f"**#{i}** — {usuario}: {len(personagens)} personagens")
+        linhas.append(f"**#{i}** — {usuario}: {len(personagens)} personagem(ns)")
 
     embed = discord.Embed(
         title=f"🏆 Ranking — {nome.title()}",
