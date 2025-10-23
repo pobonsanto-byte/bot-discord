@@ -385,7 +385,7 @@ class ImuneBot(discord.Client):
         atualizar_historico_6dias.start()
 
         # ✅ Executa o loop uma vez manualmente na inicialização
-        await rodar_checar_atividade_uma_vez()
+        await checar_atividade()
 
         print("✅ Bot totalmente inicializado e checagem feita uma vez.")
 
