@@ -15,6 +15,7 @@ from discord.ui import View, Button
 import xml.etree.ElementTree as ET
 import unicodedata
 import math
+from statistics import mean
 
 # === CONFIGURAÇÃO ===
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
