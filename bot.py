@@ -145,20 +145,34 @@ async def checar_atividade():
                 nome = membro.mention if membro else f"Usuário ({user_id})"
 
                 # === Análise com base no histórico ===
-                dias_ativos = 0
+                dias_ativos = []
                 for dia, registros in historico.items():
                     if isinstance(registros, dict) and user_id in registros:
-                        dias_ativos += 1
+                        dias_ativos.append(dia)
 
-                # Classificação
-                if dias_ativos >= 3 and delta.days < 3:
-                    ativos.append(f"🟢 {nome} — ativo {dias_ativos}/6 dias")
-                elif 1 < dias_ativos <= 2 and delta.days < 3:
-                    irregulares.append(f"🟡 {nome} — ativo {dias_ativos}/6 dias (padrão suspeito)")
+                dias_ativos = sorted(dias_ativos)
+                dias_ativos_count = len(dias_ativos)
+
+                # Calcula espaçamento médio entre dias ativos
+                espacamentos = []
+                for i in range(1, len(dias_ativos)):
+                    d1 = datetime.strptime(dias_ativos[i - 1], "%Y-%m-%d")
+                    d2 = datetime.strptime(dias_ativos[i], "%Y-%m-%d")
+                    espacamentos.append((d2 - d1).days)
+
+                espacamento_medio = sum(espacamentos) / len(espacamentos) if espacamentos else 0
+
+                # === Classificação ===
+                if dias_ativos_count >= 3 and delta.days < 3 and espacamento_medio <= 1.2:
+                    ativos.append(f"🟢 {nome} — ativo {dias_ativos_count}/6 dias")
+                elif dias_ativos_count >= 3 and espacamento_medio > 1.2:
+                    irregulares.append(f"⚠️ {nome} — ativo {dias_ativos_count}/6 dias (padrão 1 dia sim, 1 dia não)")
+                elif 1 < dias_ativos_count <= 2 and delta.days < 3:
+                    irregulares.append(f"🟡 {nome} — ativo {dias_ativos_count}/6 dias (baixa frequência)")
                 elif delta.days >= 3:
                     inativos.append(f"🔴 {nome} — {delta.days} dias sem roletar")
 
-            # Se nada pra reportar, pula
+            # === Se nada pra reportar, pula ===
             if not (ativos or irregulares or inativos):
                 continue
 
@@ -193,6 +207,7 @@ async def checar_atividade():
 
     except Exception as e:
         print(f"[ERRO] checar_atividade: {e}")
+
 
 
 
