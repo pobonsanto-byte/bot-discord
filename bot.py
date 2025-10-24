@@ -168,7 +168,7 @@ async def checar_atividade():
                 elif dias_ativos_count >= 3 and espacamento_medio > 1.2:
                     irregulares.append(f"🟡 {nome} — ativo {dias_ativos_count}/6 dias (padrão 1 dia sim, 1 dia não)")
                 elif 1 < dias_ativos_count <= 2 and delta.days < 3:
-                    irregulares.append(f"🟠 {nome} — ativo {dias_ativos_count}/6 dias (baixa frequência)")
+                    ativos.append(f"🟠 {nome} — ativo {dias_ativos_count}/6 dias (baixa frequência)")
                 elif delta.days >= 3:
                     inativos.append(f"🔴 {nome} — {delta.days} dias sem roletar")
 
@@ -183,7 +183,7 @@ async def checar_atividade():
 
             if ativos:
                 embed.add_field(
-                    name="🟢 Jogadores Ativos:",
+                    name="✅ Jogadores Ativos:",
                     value="\n".join(ativos[:10]) + ("..." if len(ativos) > 10 else ""),
                     inline=False
                 )
