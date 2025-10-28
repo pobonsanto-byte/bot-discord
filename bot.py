@@ -184,7 +184,7 @@ async def checar_atividade():
             if ativos:
                 embed.add_field(
                     name="✅ Jogadores Ativos:",
-                    value="\n".join(ativos[:10]) + ("..." if len(ativos) > 10 else ""),
+                    value="\n".join(ativos[:30]) + ("..." if len(ativos) > 30 else ""),
                     inline=False
                 )
 
