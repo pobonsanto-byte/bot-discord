@@ -1026,7 +1026,7 @@ async def on_message(message: discord.Message):
     # ====================================
     # === ATUALIZAÇÃO DE ATIVIDADE
     # ====================================
-    roll_prefixes = ("$w", "$wg", "$wa", "$ha", "$hg", "$h")
+    roll_prefixes = ("$w", "$wg", "$wa", "$ha", "$hg", "$h", "/w", "/wg", "/wa", "/ha", "/hg", "/h")
     if message.content.startswith(roll_prefixes):
         try:
             # === Atualiza atividade individual ===
