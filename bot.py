@@ -100,7 +100,7 @@ def salvar_series(series):
     """Salva o arquivo de séries no GitHub."""
     salvar_json(ARQUIVO_SERIES, series)
 
-# verificar inatividade
+
 @tasks.loop(hours=1)
 async def verificar_inatividade():
     agora = agora_brasil()
@@ -118,23 +118,40 @@ async def verificar_inatividade():
         remover_lista = []
 
         for user_id, dados in imunes[guild_id].items():
-            ultima_str = atividade.get(user_id)
+            # Verifica se existe registro de atividade para este usuário
+            user_activity = atividade.get(user_id)
+            if not user_activity:
+                print(f"⚠️ Usuário {user_id} não tem registro de atividade")
+                continue
+
+            # CORREÇÃO: Extrai a string da data (suporta ambos os formatos)
+            ultima_str = None
+            if isinstance(user_activity, dict):
+                ultima_str = user_activity.get("data")
+            else:
+                # Formato antigo (apenas string)
+                ultima_str = user_activity
+
             if not ultima_str:
-                # Usuário nunca rolou, não remove imediatamente
+                print(f"⚠️ Usuário {user_id} tem atividade mas sem data")
                 continue
 
             try:
                 ultima_data = datetime.strptime(ultima_str, "%Y-%m-%d %H:%M:%S")
             except Exception as e:
-                print(f"⚠️ Erro ao ler data de {user_id}: {e}")
+                print(f"⚠️ Erro ao ler data de {user_id}: {e} - Data: {ultima_str} - Tipo: {type(user_activity)}")
                 continue
 
             # Verifica se passou o limite de inatividade
-            if (agora - ultima_data).days >= DIAS_INATIVIDADE:
+            dias_inativos = (agora - ultima_data).days
+            print(f"👤 Usuário {user_id} - Última atividade: {ultima_str} - Dias inativos: {dias_inativos}")
+
+            if dias_inativos >= DIAS_INATIVIDADE:
+                print(f"🔴 Usuário {user_id} inativo há {dias_inativos} dias - REMOVENDO")
                 remover_lista.append(user_id)
 
+        # Processa remoções
         for user_id in remover_lista:
-            # Pega o membro do guild
             usuario = guild.get_member(int(user_id))
             if not usuario:
                 usuario_mention = "Usuário desconhecido"
@@ -159,6 +176,8 @@ async def verificar_inatividade():
                     f"por inatividade (sem roletar há {DIAS_INATIVIDADE}+ dias). "
                     f"Você não poderá adicionar outro personagem imune por 7 dias."
                 )
+                print(f"✅ Imunidade removida de {usuario_mention}")
+
 
 # === LOOP DE CHECAGEM DE ATIVIDADE MELHORADO ===
 @tasks.loop(hours=3)
