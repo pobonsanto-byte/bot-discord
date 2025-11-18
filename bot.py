@@ -100,6 +100,65 @@ def salvar_series(series):
     """Salva o arquivo de séries no GitHub."""
     salvar_json(ARQUIVO_SERIES, series)
 
+# verificar inatividade
+@tasks.loop(hours=1)
+async def verificar_inatividade():
+    agora = agora_brasil()
+    imunes = carregar_json(ARQUIVO_IMUNES)
+    atividade = carregar_atividade()
+    config = carregar_json(ARQUIVO_CONFIG)
+
+    for guild in bot.guilds:
+        guild_id = str(guild.id)
+        if guild_id not in imunes:
+            continue
+
+        canal_id = config.get(guild_id)
+        canal = guild.get_channel(canal_id) if canal_id else None
+        remover_lista = []
+
+        for user_id, dados in imunes[guild_id].items():
+            ultima_str = atividade.get(user_id)
+            if not ultima_str:
+                # Usuário nunca rolou, não remove imediatamente
+                continue
+
+            try:
+                ultima_data = datetime.strptime(ultima_str, "%Y-%m-%d %H:%M:%S")
+            except Exception as e:
+                print(f"⚠️ Erro ao ler data de {user_id}: {e}")
+                continue
+
+            # Verifica se passou o limite de inatividade
+            if (agora - ultima_data).days >= DIAS_INATIVIDADE:
+                remover_lista.append(user_id)
+
+        for user_id in remover_lista:
+            # Pega o membro do guild
+            usuario = guild.get_member(int(user_id))
+            if not usuario:
+                usuario_mention = "Usuário desconhecido"
+            else:
+                usuario_mention = usuario.mention
+
+            # Pega personagem e origem antes de remover
+            personagem = imunes[guild_id][user_id]["personagem"]
+            origem = imunes[guild_id][user_id]["origem"]
+
+            # Remove imunidade
+            del imunes[guild_id][user_id]
+            salvar_json(ARQUIVO_IMUNES, imunes)
+
+            # Aplica cooldown de 7 dias por inatividade
+            definir_cooldown(user_id, dias=7)
+
+            # Envia aviso no canal configurado
+            if canal:
+                await canal.send(
+                    f"⚠️ {usuario_mention} perdeu a imunidade de **{personagem} ({origem})** "
+                    f"por inatividade (sem roletar há {DIAS_INATIVIDADE}+ dias). "
+                    f"Você não poderá adicionar outro personagem imune por 7 dias."
+                )
 
 # === LOOP DE CHECAGEM DE ATIVIDADE MELHORADO ===
 @tasks.loop(hours=3)
@@ -209,66 +268,6 @@ async def checar_atividade():
         print(f"[ERRO] checar_atividade: {e}")
 
 
-
-
-@tasks.loop(hours=1)
-async def verificar_inatividade():
-    agora = agora_brasil()
-    imunes = carregar_json(ARQUIVO_IMUNES)
-    atividade = carregar_atividade()
-    config = carregar_json(ARQUIVO_CONFIG)
-
-    for guild in bot.guilds:
-        guild_id = str(guild.id)
-        if guild_id not in imunes:
-            continue
-
-        canal_id = config.get(guild_id)
-        canal = guild.get_channel(canal_id) if canal_id else None
-        remover_lista = []
-
-        for user_id, dados in imunes[guild_id].items():
-            ultima_str = atividade.get(user_id)
-            if not ultima_str:
-                # Usuário nunca rolou, não remove imediatamente
-                continue
-
-            try:
-                ultima_data = datetime.strptime(ultima_str, "%Y-%m-%d %H:%M:%S")
-            except Exception as e:
-                print(f"⚠️ Erro ao ler data de {user_id}: {e}")
-                continue
-
-            # Verifica se passou o limite de inatividade
-            if (agora - ultima_data).days >= DIAS_INATIVIDADE:
-                remover_lista.append(user_id)
-
-        for user_id in remover_lista:
-            # Pega o membro do guild
-            usuario = guild.get_member(int(user_id))
-            if not usuario:
-                usuario_mention = "Usuário desconhecido"
-            else:
-                usuario_mention = usuario.mention
-
-            # Pega personagem e origem antes de remover
-            personagem = imunes[guild_id][user_id]["personagem"]
-            origem = imunes[guild_id][user_id]["origem"]
-
-            # Remove imunidade
-            del imunes[guild_id][user_id]
-            salvar_json(ARQUIVO_IMUNES, imunes)
-
-            # Aplica cooldown de 7 dias por inatividade
-            definir_cooldown(user_id, dias=7)
-
-            # Envia aviso no canal configurado
-            if canal:
-                await canal.send(
-                    f"⚠️ {usuario_mention} perdeu a imunidade de **{personagem} ({origem})** "
-                    f"por inatividade (sem roletar há {DIAS_INATIVIDADE}+ dias). "
-                    f"Você não poderá adicionar outro personagem imune por 7 dias."
-                )
 
 
 # === COOLDOWN ===
