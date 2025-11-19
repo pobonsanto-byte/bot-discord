@@ -27,6 +27,7 @@ DIAS_INATIVIDADE = 3  # 🕒 define quantos dias sem roletar remove imunidade
 ARQUIVO_LOG_ATIVIDADE = "log_atividade.json"
 ARQUIVO_ATIVIDADE_6DIAS = "atividade_6dias.json"
 ARQUIVO_SERIES = "series.json"
+ARQUIVO_ISENCAO = "isencao_inatividade.json"
 
 # === CONFIG GITHUB ===
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
@@ -100,6 +101,40 @@ def salvar_series(series):
     """Salva o arquivo de séries no GitHub."""
     salvar_json(ARQUIVO_SERIES, series)
 
+def carregar_isencao():
+    """Carrega o arquivo de isenção de inatividade."""
+    dados = carregar_json(ARQUIVO_ISENCAO)
+    return dados if dados else {}
+
+def salvar_isencao(dados):
+    """Salva o arquivo de isenção no GitHub."""
+    salvar_json(ARQUIVO_ISENCAO, dados)
+
+def usuario_tem_isencao(user_id):
+    """Verifica se um usuário tem isenção de inatividade."""
+    isencao = carregar_isencao()
+    return str(user_id) in isencao
+
+def toggle_isencao(user_id, usuario_nome):
+    """Adiciona ou remove isenção de inatividade de um usuário."""
+    isencao = carregar_isencao()
+    user_id_str = str(user_id)
+    
+    if user_id_str in isencao:
+        # Remove isenção
+        del isencao[user_id_str]
+        salvar_isencao(isencao)
+        return False  # Isenção removida
+    else:
+        # Adiciona isenção
+        isencao[user_id_str] = {
+            "usuario": usuario_nome,
+            "data_concessao": agora_brasil().strftime("%Y-%m-%d %H:%M:%S"),
+            "concedido_por": "Sistema"  # Será atualizado no comando
+        }
+        salvar_isencao(isencao)
+        return True  # Isenção concedida
+
 
 @tasks.loop(hours=1)
 async def verificar_inatividade():
@@ -118,18 +153,22 @@ async def verificar_inatividade():
         remover_lista = []
 
         for user_id, dados in imunes[guild_id].items():
+            # 🔒 VERIFICA SE O USUÁRIO TEM ISENÇÃO
+            if usuario_tem_isencao(user_id):
+                print(f"🛡️ Usuário {user_id} tem isenção - ignorando verificação de inatividade")
+                continue
+
             # Verifica se existe registro de atividade para este usuário
             user_activity = atividade.get(user_id)
             if not user_activity:
                 print(f"⚠️ Usuário {user_id} não tem registro de atividade")
                 continue
 
-            # CORREÇÃO: Extrai a string da data (suporta ambos os formatos)
+            # Extrai a string da data (suporta ambos os formatos)
             ultima_str = None
             if isinstance(user_activity, dict):
                 ultima_str = user_activity.get("data")
             else:
-                # Formato antigo (apenas string)
                 ultima_str = user_activity
 
             if not ultima_str:
@@ -139,7 +178,7 @@ async def verificar_inatividade():
             try:
                 ultima_data = datetime.strptime(ultima_str, "%Y-%m-%d %H:%M:%S")
             except Exception as e:
-                print(f"⚠️ Erro ao ler data de {user_id}: {e} - Data: {ultima_str} - Tipo: {type(user_activity)}")
+                print(f"⚠️ Erro ao ler data de {user_id}: {e} - Data: {ultima_str}")
                 continue
 
             # Verifica se passou o limite de inatividade
@@ -458,6 +497,98 @@ class ListaImunesView(View):
             await i.response.edit_message(embed=self.gerar_embed(), view=self)
 
 # === COMANDOS ADMIN ===
+@bot.tree.command(name="isencao_inatividade", description="Concede ou remove isenção de penalidade por inatividade de um usuário.")
+@app_commands.describe(usuario="Usuário que terá a isenção concedida/removida")
+@app_commands.checks.has_permissions(administrator=True)
+async def isencao_inatividade(interaction: discord.Interaction, usuario: discord.Member):
+    """Comando para conceder ou remover isenção de penalidade por inatividade."""
+    
+    # Atualiza os dados da isenção com quem concediu
+    isencao = carregar_isencao()
+    user_id_str = str(usuario.id)
+    
+    if user_id_str in isencao:
+        # Remove isenção
+        del isencao[user_id_str]
+        salvar_isencao(isencao)
+        
+        embed = discord.Embed(
+            title="🛡️ Isenção Removida",
+            description=f"A isenção de penalidade por inatividade foi **removida** de {usuario.mention}.",
+            color=discord.Color.orange()
+        )
+        embed.add_field(name="Usuário", value=f"{usuario.display_name} (`{usuario.id}`)", inline=True)
+        embed.add_field(name="Ação", value="Removida por " + interaction.user.mention, inline=True)
+        embed.set_footer(text="O usuário agora está sujeito à verificação de inatividade normal.")
+        
+    else:
+        # Adiciona isenção
+        isencao[user_id_str] = {
+            "usuario": usuario.name,
+            "display_name": usuario.display_name,
+            "data_concessao": agora_brasil().strftime("%Y-%m-%d %H:%M:%S"),
+            "concedido_por": interaction.user.name,
+            "concedido_por_id": interaction.user.id
+        }
+        salvar_isencao(isencao)
+        
+        embed = discord.Embed(
+            title="🛡️ Isenção Concedida",
+            description=f"A isenção de penalidade por inatividade foi **concedida** a {usuario.mention}.",
+            color=discord.Color.green()
+        )
+        embed.add_field(name="Usuário", value=f"{usuario.display_name} (`{usuario.id}`)", inline=True)
+        embed.add_field(name="Concedido por", value=interaction.user.mention, inline=True)
+        embed.add_field(name="Data", value=agora_brasil().strftime("%d/%m/%Y %H:%M"), inline=True)
+        embed.set_footer(text="O usuário não perderá imunidade por inatividade.")
+    
+    # 🔒 MENSAGEM PRIVADA (somente o administrador vê)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@bot.tree.command(name="lista_isencao", description="Lista todos os usuários com isenção de inatividade.")
+@app_commands.checks.has_permissions(administrator=True)
+async def lista_isencao(interaction: discord.Interaction):
+    """Lista todos os usuários que possuem isenção de penalidade por inatividade."""
+    
+    isencao = carregar_isencao()
+    
+    if not isencao:
+        embed = discord.Embed(
+            title="🛡️ Lista de Isenções",
+            description="Nenhum usuário possui isenção de inatividade no momento.",
+            color=discord.Color.blue()
+        )
+        # 🔒 MENSAGEM PRIVADA
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+    
+    embed = discord.Embed(
+        title="🛡️ Lista de Isenções de Inatividade",
+        color=discord.Color.gold()
+    )
+    
+    for user_id, dados in isencao.items():
+        usuario = interaction.guild.get_member(int(user_id))
+        if usuario:
+            mention = usuario.mention
+            nome = usuario.display_name
+        else:
+            mention = f"`{user_id}`"
+            nome = dados.get('usuario', 'Usuário não encontrado')
+        
+        concedido_por = dados.get('concedido_por', 'Sistema')
+        data_concessao = dados.get('data_concessao', 'Data desconhecida')
+        
+        embed.add_field(
+            name=f"👤 {nome}",
+            value=f"**ID:** {user_id}\n**Usuário:** {mention}\n**Concedido por:** {concedido_por}\n**Data:** {data_concessao}",
+            inline=False
+        )
+    
+    embed.set_footer(text=f"Total de {len(isencao)} usuário(s) com isenção")
+    # 🔒 MENSAGEM PRIVADA
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
 @bot.tree.command(name="zerar_series", description="Zera todos os dados do series.json (apenas administradores autorizados).")
 async def zerar_series(interaction: discord.Interaction):
     # IDs autorizados
