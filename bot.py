@@ -914,8 +914,6 @@ async def remover_cooldown(interaction: discord.Interaction, usuario: discord.Me
         description=f"O cooldown de {usuario.mention} foi removido com sucesso!",
         color=discord.Color.green()
     )
-    embed.add_field(name="Usuário", value=f"{usuario.display_name} (`{usuario.id}`)", inline=True)
-    embed.add_field(name="Removido por", value=interaction.user.mention, inline=True)
     
     await interaction.response.send_message(embed=embed)
 
