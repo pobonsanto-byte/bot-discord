@@ -889,64 +889,94 @@ async def atividade_status(interaction: discord.Interaction, pagina: int = 1):
     view = AtividadeView(pagina)
     await interaction.response.send_message(embed=embed, view=view)
 
-@bot.tree.command(name="remover_com_cd", description="Remove um personagem da lista de imunes e aplica cooldown de 3 dias no dono.")
-@app_commands.describe(personagem="Nome do personagem a ser removido da lista de imunes.")
-async def remover_com_cd(interaction: discord.Interaction, personagem: str):
-    # === IDs de usuários autorizados ===
-    ids_autorizados = [292756862020091906, 289801244653125634]
-
-    # === Verifica se o autor está autorizado ===
-    if interaction.user.id not in ids_autorizados:
-        await interaction.response.send_message("❌ Você não tem permissão para usar este comando.", ephemeral=True)
+# === COMANDOS DE COOLDOWN PERSONALIZADO ===
+@bot.tree.command(name="remover_cooldown", description="Remove o cooldown de um usuário.")
+@app_commands.describe(usuario="Usuário que terá o cooldown removido")
+@app_commands.checks.has_permissions(administrator=True)
+async def remover_cooldown(interaction: discord.Interaction, usuario: discord.Member):
+    """Remove o cooldown de um usuário específico."""
+    cooldowns = carregar_json(ARQUIVO_COOLDOWN)
+    user_id_str = str(usuario.id)
+    
+    if user_id_str not in cooldowns:
+        await interaction.response.send_message(
+            f"⚙️ {usuario.mention} não possui cooldown ativo.",
+            ephemeral=True
+        )
         return
+    
+    # Remove o cooldown
+    del cooldowns[user_id_str]
+    salvar_json(ARQUIVO_COOLDOWN, cooldowns)
+    
+    embed = discord.Embed(
+        title="⏳ Cooldown Removido",
+        description=f"O cooldown de {usuario.mention} foi removido com sucesso!",
+        color=discord.Color.green()
+    )
+    embed.add_field(name="Usuário", value=f"{usuario.display_name} (`{usuario.id}`)", inline=True)
+    embed.add_field(name="Removido por", value=interaction.user.mention, inline=True)
+    
+    await interaction.response.send_message(embed=embed)
 
-    # === Carrega configuração do canal salvo com /set_canal_imune ===
+@bot.tree.command(name="aplicar_cooldown", description="Aplica um cooldown personalizado a um usuário.")
+@app_commands.describe(
+    usuario="Usuário que receberá o cooldown",
+    dias="Número de dias de cooldown (padrão: 3)"
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def aplicar_cooldown(interaction: discord.Interaction, usuario: discord.Member, dias: int = 3):
+    """Aplica um cooldown personalizado a um usuário."""
+    
+    # Validação do número de dias
+    if dias < 1:
+        await interaction.response.send_message(
+            "❌ O número de dias deve ser pelo menos 1.",
+            ephemeral=True
+        )
+        return
+    
+    if dias > 30:  # Limite máximo de 30 dias
+        await interaction.response.send_message(
+            "❌ O número máximo de dias é 30.",
+            ephemeral=True
+        )
+        return
+    
+    # Aplica o cooldown
+    definir_cooldown(str(usuario.id), dias=dias)
+    
+    # Calcula a data de expiração
+    expira_em = agora_brasil() + timedelta(days=dias)
+    
+    embed = discord.Embed(
+        title="⏳ Cooldown Aplicado",
+        description=f"Um cooldown de **{dias} dia(s)** foi aplicado a {usuario.mention}.",
+        color=discord.Color.orange()
+    )
+    embed.add_field(name="Usuário", value=f"{usuario.display_name} (`{usuario.id}`)", inline=True)
+    embed.add_field(name="Duração", value=f"{dias} dia(s)", inline=True)
+    embed.add_field(name="Expira em", value=expira_em.strftime("%d/%m/%Y %H:%M"), inline=True)
+    embed.add_field(name="Aplicado por", value=interaction.user.mention, inline=False)
+    
+    # 🔒 MENSAGEM PRIVADA AO ADMIN
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+    
+    # 🔔 NOTIFICAÇÃO PÚBLICA (opcional)
     config = carregar_json(ARQUIVO_CONFIG)
     guild_id = str(interaction.guild.id)
-    canal_id_configurado = config.get(guild_id)
-
-    # Se o canal configurado não for o atual, bloqueia o uso
-    if not canal_id_configurado or interaction.channel.id != canal_id_configurado:
-        await interaction.response.send_message("⚠️ Este comando só pode ser usado no canal configurado pelo `/set_canal_imune`.", ephemeral=True)
-        return
-
-    await interaction.response.defer(thinking=True, ephemeral=False)
-
-    # === Carrega o arquivo de imunidades ===
-    imunes = carregar_json(ARQUIVO_IMUNES)
-    if guild_id not in imunes or not imunes[guild_id]:
-        await interaction.followup.send("⚠️ Nenhum personagem imune encontrado neste servidor.", ephemeral=False)
-        return
-
-    personagem_normalizado = normalizar_texto(personagem)
-    removido = False
-
-    # === Procura e remove o personagem ===
-    for user_id, dados in list(imunes[guild_id].items()):
-        if normalizar_texto(dados["personagem"]) == personagem_normalizado:
-            usuario = interaction.guild.get_member(int(user_id))
-            nome_usuario = usuario.mention if usuario else f"ID {user_id}"
-
-            # Remove do arquivo
-            del imunes[guild_id][user_id]
-            salvar_json(ARQUIVO_IMUNES, imunes)
-
-            # Aplica cooldown de 3 dias
-            definir_cooldown(user_id, dias=3)
-
-            # Envia confirmação
-            await interaction.followup.send(
-                f"🗑️ O personagem **{dados['personagem']} ({dados['origem']})** foi removido da lista de imunes.\n"
-                f"🕒 {nome_usuario} entrou em cooldown de **3 dias** para usar `/imune_add` novamente.",
-                ephemeral=False
+    canal_id = config.get(guild_id)
+    
+    if canal_id:
+        canal = interaction.guild.get_channel(canal_id)
+        if canal:
+            embed_publico = discord.Embed(
+                title="⏳ Cooldown Aplicado",
+                description=f"{usuario.mention} recebeu um cooldown de **{dias} dia(s)**.",
+                color=discord.Color.orange()
             )
-
-            print(f"[ADMIN REMOVER] {interaction.user} removeu {dados['personagem']} ({dados['origem']}) de {nome_usuario}.")
-            removido = True
-            break
-
-    if not removido:
-        await interaction.followup.send(f"⚠️ O personagem **{personagem}** não foi encontrado na lista de imunes.", ephemeral=False)
+            embed_publico.add_field(name="Expira em", value=expira_em.strftime("%d/%m/%Y %H:%M"), inline=True)
+            await canal.send(embed=embed_publico)
 
 
 @bot.tree.command(name="testar_mudae", description="Testa a leitura da última embed enviada pela Mudae no canal.")
