@@ -936,9 +936,9 @@ async def aplicar_cooldown(interaction: discord.Interaction, usuario: discord.Me
         )
         return
     
-    if dias > 30:  # Limite máximo de 30 dias
+    if dias > 365:  # Limite máximo de 365 dias
         await interaction.response.send_message(
-            "❌ O número máximo de dias é 30.",
+            "❌ O número máximo de dias é 365.",
             ephemeral=True
         )
         return
