@@ -1014,7 +1014,7 @@ async def imune_add(interaction: discord.Interaction, nome_personagem: str, jogo
 
     if esta_em_cooldown(user_id):
         await interaction.response.send_message(
-            f"⏳ {interaction.user.mention}, você está em cooldown. Aguarde 3 dias.",
+            f"⏳ {interaction.user.mention}, você está em cooldown. Aguarde o cooldown acabar.",
             ephemeral=True
         )
         return
