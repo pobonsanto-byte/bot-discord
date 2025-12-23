@@ -1347,8 +1347,9 @@ async def on_message(message: discord.Message):
         if not encontrado:
             print(f"[DEBUG $im] Personagem '{personagem}' não encontrado na lista de imunes")
 
-    # Permite que outros comandos Slash e prefixados funcionem
-    await bot.process_commands(message)
+    # Não processamos comandos com prefixo, apenas interações slash
+    # Como estamos usando discord.Client e não commands.Bot, não precisamos processar comandos
+    return
 
 
     # === EVENTO DE CASAMENTO DA MUDAE VIA EMBED ===
