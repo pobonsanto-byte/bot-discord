@@ -1288,7 +1288,7 @@ async def on_message(message: discord.Message):
                 if canal:
                     await canal.send(
                         f" {usuario_imune.mention}, seu personagem imune "
-                        f"**{dados['personagem']} ({dados['origem']})** já foi pego por **{dono_nome}**. "
+                        f"**{dados['personagem']} ({dados['origem']})** já foi pego. "
                         f"Você agora está em cooldown de **3 dias** para usar `/imune_add` novamente."
                     )
                 
