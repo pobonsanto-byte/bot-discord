@@ -1239,116 +1239,60 @@ async def on_message(message: discord.Message):
         except Exception as e:
             print(f"⚠️ Erro ao atualizar histórico: {e}")
 
+                        
+
     # ====================================
-    # === NOVO DETECTOR AUTOMÁTICO DE $IM (COM DEBUG)
+    # === NOVO DETECTOR AUTOMÁTICO DE $IM
     # ====================================
     if message.content.lower().startswith("$im "):
         await asyncio.sleep(3)  # espera a embed da Mudae ser enviada
 
-        # === FUNÇÃO AUXILIAR LOCAL ===
-        async def obter_ultima_embed_mudae_local(channel: discord.TextChannel):
-            """Retorna (autor, footer, descricao) da última embed da Mudae no canal."""
-            async for msg in channel.history(limit=10):
-                if msg.author.bot and msg.author.name.lower() == "mudae" and msg.embeds:
-                    embed = msg.embeds[0]
-                    autor = embed.author.name if embed.author and embed.author.name else None
-                    footer = embed.footer.text if embed.footer and embed.footer.text else None
-                    descricao = embed.description or ""
-                    
-                    # DEBUG: Mostra o que está sendo extraído
-                    print(f"[DEBUG] Embed encontrada:")
-                    print(f"  Autor: {autor}")
-                    print(f"  Footer: {footer}")
-                    print(f"  Descrição (primeiros 100 chars): {descricao[:100]}")
-                    
-                    return autor, footer, descricao
-            return None, None, None
-
-        personagem, footer_text, descricao = await obter_ultima_embed_mudae_local(message.channel)
-        
-        # DEBUG: Mostra o que foi extraído
-        print(f"[DEBUG $im] Personagem extraído: {personagem}")
-        print(f"[DEBUG $im] Footer extraído: {footer_text}")
-        
+        personagem, footer_text, descricao = await obter_ultima_embed_mudae(message.channel)
         if not personagem or not footer_text:
-            print(f"[DEBUG $im] Personagem ou footer vazios - retornando")
             return
 
-        # Extrai o dono do personagem do rodapé (tenta múltiplos padrões)
-        dono_nome = None
-        patterns = [
-            r"Pertence a ([^~\n_]+)",
-            r"Belongs to ([^~\n_]+)",
-            r"Owner: ([^~\n_]+)",
-            r"Dono: ([^~\n_]+)"
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, footer_text)
-            if match:
-                dono_nome = match.group(1).strip().replace("_", "")
-                break
-        
-        if not dono_nome:
-            print(f"[DEBUG $im] Não conseguiu extrair dono do footer: {footer_text}")
+        # Extrai o dono do personagem do rodapé
+        match = re.search(r"Pertence a ([^~\n_]+)", footer_text)
+        if not match:
             return
-        
-        print(f"[DEBUG $im] Dono extraído: {dono_nome}")
-        
+        dono_nome = match.group(1).strip().replace("_", "")
+
         guild_id = str(message.guild.id)
         imunes = carregar_json(ARQUIVO_IMUNES)
-        
         if guild_id not in imunes:
-            print(f"[DEBUG $im] Guild {guild_id} não está em imunes")
             return
-        
+
         personagem_normalizado = normalizar_texto(personagem)
-        print(f"[DEBUG $im] Personagem normalizado: '{personagem_normalizado}'")
-        
-        encontrado = False
+
         for user_id, dados in imunes[guild_id].items():
-            personagem_imune_normalizado = normalizar_texto(dados["personagem"])
-            print(f"[DEBUG $im] Comparando com: '{personagem_imune_normalizado}' do usuário {dados['usuario']}")
-            
-            if personagem_imune_normalizado == personagem_normalizado:
+            if normalizar_texto(dados["personagem"]) == personagem_normalizado:
                 usuario_imune = message.guild.get_member(int(user_id))
                 if not usuario_imune:
-                    print(f"[DEBUG $im] Usuário {user_id} não encontrado no servidor")
                     continue
-                
-                # DEBUG: Informações completas
-                print(f"[DEBUG $im] ENCONTRADO! Personagem: {dados['personagem']}, Origem: {dados['origem']}, Usuário: {usuario_imune.name}")
-                
+
                 # Remove da lista de imunidades
                 del imunes[guild_id][user_id]
                 salvar_json(ARQUIVO_IMUNES, imunes)
-                
+
                 # Aplica cooldown de 3 dias
                 definir_cooldown(user_id, dias=3)
-                
+
                 # Envia aviso no canal configurado
                 config = carregar_json(ARQUIVO_CONFIG)
                 canal_id = config.get(guild_id)
                 canal = message.guild.get_channel(canal_id) if canal_id else None
-                
+
                 if canal:
                     await canal.send(
-                        f"⚠️ {usuario_imune.mention}, seu personagem imune "
-                        f"**{dados['personagem']} ({dados['origem']})** já foi pego por **{dono_nome}**. "
+                        f" {usuario_imune.mention}, seu personagem imune "
+                        f"**{dados['personagem']} ({dados['origem']})** já foi pego. "
                         f"Você agora está em cooldown de **3 dias** para usar `/imune_add` novamente."
                     )
-                    print(f"[REMOVIDO] {dados['personagem']} removido das imunidades. Cooldown aplicado a {usuario_imune.name}.")
-                else:
-                    print(f"[REMOVIDO] Canal não encontrado para aviso. Personagem removido.")
-                
-                encontrado = True
-                break
-        
-        if not encontrado:
-            print(f"[DEBUG $im] Personagem '{personagem}' não encontrado na lista de imunes")
 
-    # Não processamos comandos com prefixo, apenas interações slash
-    # Como estamos usando discord.Client e não commands.Bot, não precisamos processar comandos
+                print(f"[REMOVIDO] {dados['personagem']} removido das imunidades. Cooldown aplicado a {usuario_imune}.")
+                break
+
+    # Permite que outros comandos Slash e prefixados funcionem
     return
 
 
