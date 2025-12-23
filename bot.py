@@ -1245,61 +1245,58 @@ async def on_message(message: discord.Message):
     # === NOVO DETECTOR AUTOMÁTICO DE $IM
     # ====================================
     if message.content.lower().startswith("$im "):
-    await asyncio.sleep(3)
-
-    personagem, footer_text, descricao = await obter_ultima_embed_mudae(message.channel)
-    if not personagem or not footer_text:
-        return
-
-    # Extrai o dono do personagem
-    match = re.search(r"Pertence a ([^~\n_]+)", footer_text)
-    if not match:
-        return
-    dono_nome = match.group(1).strip().replace("_", "")  # Já remove underscores aqui
-
-    guild_id = str(message.guild.id)
-    imunes = carregar_json(ARQUIVO_IMUNES)
-    if guild_id not in imunes:
-        return
-
-    personagem_normalizado = normalizar_texto(personagem)
-
-    for user_id, dados in imunes[guild_id].items():
-        if normalizar_texto(dados["personagem"]) == personagem_normalizado:
-            usuario_imune = message.guild.get_member(int(user_id))
-            if not usuario_imune:
-                continue
+        await asyncio.sleep(3)
+        
+        personagem, footer_text, descricao = await obter_ultima_embed_mudae(message.channel)
+        if not personagem or not footer_text:
+            return
+            
+        match = re.search(r"Pertence a ([^~\n_]+)", footer_text)
+        if not match:
+            return
+        dono_nome = match.group(1).strip().replace("_", "")  # Já remove underscores aqui
+        guild_id = str(message.guild.id)
+        imunes = carregar_json(ARQUIVO_IMUNES)
+        if guild_id not in imunes:
+            return
+            
+        personagem_normalizado = normalizar_texto(personagem)
+        for user_id, dados in imunes[guild_id].items():
+            if normalizar_texto(dados["personagem"]) == personagem_normalizado:
+                usuario_imune = message.guild.get_member(int(user_id))
+                if not usuario_imune:
+                    continue
 
             # 🔥 AGORA COMPARAMOS NORMALIZANDO OS NOMES (removendo underscores)
-            nome_usuario_normalizado = normalizar_texto(dados["usuario"].replace("_", ""))
-            dono_nome_normalizado = normalizar_texto(dono_nome)
+                nome_usuario_normalizado = normalizar_texto(dados["usuario"].replace("_", ""))
+                dono_nome_normalizado = normalizar_texto(dono_nome)
             
             # Se for o próprio usuário, NÃO remove
-            if nome_usuario_normalizado == dono_nome_normalizado:
-                print(f"[INFO] {dados['usuario']} viu seu próprio personagem - mantendo imunidade")
-                return
+                if nome_usuario_normalizado == dono_nome_normalizado:
+                    print(f"[INFO] {dados['usuario']} viu seu próprio personagem - mantendo imunidade")
+                    return
             
             # Remove da lista de imunidades
-            del imunes[guild_id][user_id]
-            salvar_json(ARQUIVO_IMUNES, imunes)
+                del imunes[guild_id][user_id]
+                salvar_json(ARQUIVO_IMUNES, imunes)
 
             # Aplica cooldown de 3 dias
-            definir_cooldown(user_id, dias=3)
+                definir_cooldown(user_id, dias=3)
 
             # Envia aviso no canal configurado
-            config = carregar_json(ARQUIVO_CONFIG)
-            canal_id = config.get(guild_id)
-            canal = message.guild.get_channel(canal_id) if canal_id else None
+                config = carregar_json(ARQUIVO_CONFIG)
+                canal_id = config.get(guild_id)
+                canal = message.guild.get_channel(canal_id) if canal_id else None
 
-            if canal:
-                await canal.send(
-                    f" {usuario_imune.mention}, seu personagem imune "
-                    f"**{dados['personagem']} ({dados['origem']})** já foi pego por **{dono_nome}**. "
-                    f"Você agora está em cooldown de **3 dias** para usar `/imune_add` novamente."
-                )
-
-            print(f"[REMOVIDO] {dados['personagem']} removido das imunidades. Cooldown aplicado a {usuario_imune}.")
-            break
+                if canal:
+                    await canal.send(
+                        f" {usuario_imune.mention}, seu personagem imune "
+                        f"**{dados['personagem']} ({dados['origem']})** já foi pego por **{dono_nome}**. "
+                        f"Você agora está em cooldown de **3 dias** para usar `/imune_add` novamente."
+                    )
+                print(f"[REMOVIDO] {dados['personagem']} removido das imunidades. Cooldown aplicado a {usuario_imune}.")
+                
+                break
     # Permite que outros comandos Slash e prefixados funcionem
     return
 
