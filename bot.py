@@ -91,6 +91,26 @@ def carregar_atividade_6dias():
 def salvar_atividade_6dias(dados):
     salvar_json(ARQUIVO_ATIVIDADE_6DIAS, dados)
 
+def migrar_cooldowns_antigos():
+    """Converte cooldowns no formato antigo para o novo formato."""
+    cooldowns = carregar_json(ARQUIVO_COOLDOWN)
+    atualizado = False
+    
+    for user_id, dados in list(cooldowns.items()):
+        if isinstance(dados, str):
+            cooldowns[user_id] = {
+                "expira": dados,
+                "avisado": False,
+                "motivo": "desconhecido",
+                "aplicado_por": "sistema",
+                "dias": 3,
+                "data_aplicacao": agora_brasil().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            atualizado = True
+    
+    if atualizado:
+        salvar_json(ARQUIVO_COOLDOWN, cooldowns)
+        print("✅ Cooldowns antigos migrados para o novo formato")
 # === FUNÇÕES AUXILIARES DE SÉRIES ===
 def carregar_series():
     """Carrega o arquivo de séries do GitHub."""
@@ -206,7 +226,12 @@ async def verificar_inatividade():
             salvar_json(ARQUIVO_IMUNES, imunes)
 
             # Aplica cooldown de 7 dias por inatividade
-            definir_cooldown(user_id, dias=7)
+            definir_cooldown(
+                user_id, 
+                dias=7, 
+                motivo="inatividade", 
+                aplicado_por="sistema"
+            )
 
             # Envia aviso no canal configurado
             if canal:
@@ -342,11 +367,73 @@ def esta_em_cooldown(user_id):
         return False
     return True
 
-def definir_cooldown(user_id, dias=3):
+def definir_cooldown(user_id, dias=3, motivo="personagem_pego", aplicado_por="sistema"):
+    """
+    Define um cooldown para um usuário.
+    
+    Args:
+        user_id: ID do usuário
+        dias: Quantidade de dias de cooldown (padrão: 3)
+        motivo: Razão do cooldown
+        aplicado_por: Quem aplicou o cooldown
+    """
     cooldowns = carregar_json(ARQUIVO_COOLDOWN)
     expira_em = agora_brasil() + timedelta(days=dias)
-    cooldowns[str(user_id)] = expira_em.strftime("%Y-%m-%d %H:%M:%S")
+    
+    cooldowns[str(user_id)] = {
+        "expira": expira_em.strftime("%Y-%m-%d %H:%M:%S"),
+        "avisado": False,
+        "motivo": motivo,
+        "aplicado_por": aplicado_por,
+        "dias": dias,
+        "data_aplicacao": agora_brasil().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    
     salvar_json(ARQUIVO_COOLDOWN, cooldowns)
+
+def esta_em_cooldown(user_id):
+    cooldowns = carregar_json(ARQUIVO_COOLDOWN)
+    agora = agora_brasil()
+    
+    user_id_str = str(user_id)
+    if user_id_str not in cooldowns:
+        return False
+    
+    dados = cooldowns[user_id_str]
+    
+    # Suporte para formato antigo (string)
+    if isinstance(dados, str):
+        expira_em = datetime.strptime(dados, "%Y-%m-%d %H:%M:%S")
+        # Converte para novo formato
+        cooldowns[user_id_str] = {
+            "expira": dados,
+            "avisado": False,
+            "motivo": "desconhecido",
+            "aplicado_por": "sistema",
+            "dias": 3,
+            "data_aplicacao": agora.strftime("%Y-%m-%d %H:%M:%S")
+        }
+        salvar_json(ARQUIVO_COOLDOWN, cooldowns)
+        
+        if agora >= expira_em:
+            del cooldowns[user_id_str]
+            salvar_json(ARQUIVO_COOLDOWN, cooldowns)
+            return False
+        return True
+    
+    # Formato novo (dicionário)
+    expira_str = dados.get("expira")
+    if not expira_str:
+        return False
+    
+    expira_em = datetime.strptime(expira_str, "%Y-%m-%d %H:%M:%S")
+    
+    if agora >= expira_em:
+        del cooldowns[user_id_str]
+        salvar_json(ARQUIVO_COOLDOWN, cooldowns)
+        return False
+    
+    return True
 
 # === YOUTUBE ===
 CANAL_YOUTUBE = "UCcMSONDJxb18PW5B8cxYdzQ"  # ID do canal
@@ -942,7 +1029,12 @@ async def aplicar_cooldown(interaction: discord.Interaction, usuario: discord.Me
         return
     
     # Aplica o cooldown
-    definir_cooldown(str(usuario.id), dias=dias)
+    definir_cooldown(
+        str(usuario.id), 
+        dias=dias, 
+        motivo="comando_administrativo", 
+        aplicado_por=interaction.user.name
+    )
     
     # Calcula a data de expiração
     expira_em = agora_brasil() + timedelta(days=dias)
@@ -1278,7 +1370,12 @@ async def on_message(message: discord.Message):
                 salvar_json(ARQUIVO_IMUNES, imunes)
 
                 # Aplica cooldown de 3 dias
-                definir_cooldown(user_id, dias=3)
+                definir_cooldown(
+                    user_id, 
+                    dias=3, 
+                    motivo="personagem_pego", 
+                    aplicado_por="sistema"
+                )
 
                 # Envia aviso no canal configurado
                 config = carregar_json(ARQUIVO_CONFIG)
@@ -1369,7 +1466,12 @@ async def on_message_edit(before, after):
             # Remove imunidade e aplica cooldown de 3 dias
             del imunes[guild_id][user_id]
             salvar_json(ARQUIVO_IMUNES, imunes)
-            definir_cooldown(user_id, dias=3)
+            definir_cooldown(
+                user_id, 
+                dias=3, 
+                motivo="casamento_personagem", 
+                aplicado_por="sistema"
+            )
 
 
 
