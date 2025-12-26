@@ -91,26 +91,6 @@ def carregar_atividade_6dias():
 def salvar_atividade_6dias(dados):
     salvar_json(ARQUIVO_ATIVIDADE_6DIAS, dados)
 
-def migrar_cooldowns_antigos():
-    """Converte cooldowns no formato antigo para o novo formato."""
-    cooldowns = carregar_json(ARQUIVO_COOLDOWN)
-    atualizado = False
-    
-    for user_id, dados in list(cooldowns.items()):
-        if isinstance(dados, str):
-            cooldowns[user_id] = {
-                "expira": dados,
-                "avisado": False,
-                "motivo": "desconhecido",
-                "aplicado_por": "sistema",
-                "dias": 3,
-                "data_aplicacao": agora_brasil().strftime("%Y-%m-%d %H:%M:%S")
-            }
-            atualizado = True
-    
-    if atualizado:
-        salvar_json(ARQUIVO_COOLDOWN, cooldowns)
-        print("✅ Cooldowns antigos migrados para o novo formato")
 # === FUNÇÕES AUXILIARES DE SÉRIES ===
 def carregar_series():
     """Carrega o arquivo de séries do GitHub."""
