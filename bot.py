@@ -344,11 +344,17 @@ def esta_em_cooldown(user_id):
         expira_str = cooldown_data
     
     if not expira_str:
+        # Dado inválido, remove
+        del cooldowns[str(user_id)]
+        salvar_json(ARQUIVO_COOLDOWN, cooldowns)
         return False
     
     try:
         expira_em = datetime.strptime(expira_str, "%Y-%m-%d %H:%M:%S")
     except ValueError:
+        # Formato inválido, remove
+        del cooldowns[str(user_id)]
+        salvar_json(ARQUIVO_COOLDOWN, cooldowns)
         return False
     
     if agora >= expira_em:
@@ -1479,52 +1485,68 @@ async def verificar_cooldowns():
             try:
                 if canal:
                     await canal.send(f" {membro.mention}, seu cooldown acabou! Você já pode usar `/imune_add` novamente.")
+                    print(f"✅ Cooldown avisado para {membro} no canal {canal.name}")
                 else:
                     await membro.send(" Seu cooldown acabou! Você já pode usar `/imune_add` novamente.")
+                    print(f"✅ Cooldown avisado por DM para {membro}")
                 aviso_enviado = True
                 break
             except Exception as e:
                 print(f"⚠️ Erro ao notificar cooldown de {membro}: {e}")
                 continue
 
-        # Marca como avisado
+        # Marca como avisado mesmo se não encontrou o usuário
         if user_id in cooldowns:
             # Converte formato antigo para novo se necessário
             if isinstance(cooldowns[user_id], str):
                 cooldowns[user_id] = {"expira": cooldowns[user_id], "avisado": aviso_enviado}
             else:
                 cooldowns[user_id]["avisado"] = aviso_enviado
+    
+    # === ATUALIZA O ARQUIVO COM OS AVISOS ===
+    salvar_json(ARQUIVO_COOLDOWN, cooldowns)
 
-    # === LIMPEZA SEGURA DE COOLDOWNS ===
-    cooldowns_filtrados = {}
+    # === LIMPEZA DEFINITIVA DE COOLDOWNS EXPIRADOS E JÁ AVISADOS ===
+    cooldowns_limpos = {}
+    agora = agora_brasil()  # Atualiza o tempo para verificação
 
     for uid, data in cooldowns.items():
+        manter = True
+        
         if isinstance(data, dict):
             expira_str = data.get("expira")
             avisado = data.get("avisado", False)
             
-            if not expira_str:
-                continue
-                
-            try:
-                expira = datetime.strptime(expira_str, "%Y-%m-%d %H:%M:%S")
-            except Exception:
-                continue
-
-            # Mantém se ainda não expirou OU se expirou mas não foi avisado
-            if agora < expira or not avisado:
-                cooldowns_filtrados[uid] = data
-                
+            if expira_str:
+                try:
+                    expira = datetime.strptime(expira_str, "%Y-%m-%d %H:%M:%S")
+                    # Remove se expirou E já foi avisado
+                    if agora >= expira and avisado:
+                        manter = False
+                        print(f"🧹 Cooldown removido para usuário {uid} (expirado e avisado)")
+                except Exception:
+                    pass
+                    
         elif isinstance(data, str):
             try:
                 expira = datetime.strptime(data, "%Y-%m-%d %H:%M:%S")
-                if agora < expira:
-                    cooldowns_filtrados[uid] = data
+                # Remove se expirou (formato antigo sempre remove quando expira)
+                if agora >= expira:
+                    manter = False
+                    print(f"🧹 Cooldown antigo removido para usuário {uid}")
             except Exception:
-                continue
+                pass
+        
+        if manter:
+            cooldowns_limpos[uid] = data
 
-    salvar_json(ARQUIVO_COOLDOWN, cooldowns_filtrados)
-    print(f"[LOOP] Cooldowns antes: {len(cooldowns)} | depois: {len(cooldowns_filtrados)} | {datetime.now()}")
+    # Salva apenas os cooldowns que devem ser mantidos
+    salvar_json(ARQUIVO_COOLDOWN, cooldowns_limpos)
+    
+    # Log informativo
+    if len(cooldowns) != len(cooldowns_limpos):
+        print(f"🧹 Cooldowns limpos: {len(cooldowns)} → {len(cooldowns_limpos)}")
+    print(f"[LOOP] Verificação de cooldowns concluída: {len(expirados)} expirados | {datetime.now()}")
 
 
 # === LOOP YOUTUBE ===
