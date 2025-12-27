@@ -334,19 +334,6 @@ async def checar_atividade():
 
 
 # === COOLDOWN ===
-def esta_em_cooldown(user_id):
-    cooldowns = carregar_json(ARQUIVO_COOLDOWN)
-    agora = agora_brasil()
-    expira_em_str = cooldowns.get(str(user_id))
-    if not expira_em_str:
-        return False
-    expira_em = datetime.strptime(expira_em_str, "%Y-%m-%d %H:%M:%S")
-    if agora >= expira_em:
-        del cooldowns[str(user_id)]
-        salvar_json(ARQUIVO_COOLDOWN, cooldowns)
-        return False
-    return True
-
 def definir_cooldown(user_id, dias=3, motivo="personagem_pego", aplicado_por="sistema"):
     """
     Define um cooldown para um usuário.
