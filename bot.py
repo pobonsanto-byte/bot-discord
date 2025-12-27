@@ -334,6 +334,19 @@ async def checar_atividade():
 
 
 # === COOLDOWN ===
+def esta_em_cooldown(user_id):
+    cooldowns = carregar_json(ARQUIVO_COOLDOWN)
+    agora = agora_brasil()
+    expira_em_str = cooldowns.get(str(user_id))
+    if not expira_em_str:
+        return False
+    expira_em = datetime.strptime(expira_em_str, "%Y-%m-%d %H:%M:%S")
+    if agora >= expira_em:
+        del cooldowns[str(user_id)]
+        salvar_json(ARQUIVO_COOLDOWN, cooldowns)
+        return False
+    return True
+
 def definir_cooldown(user_id, dias=3, motivo="personagem_pego", aplicado_por="sistema"):
     """
     Define um cooldown para um usuário.
@@ -358,35 +371,7 @@ def definir_cooldown(user_id, dias=3, motivo="personagem_pego", aplicado_por="si
     
     salvar_json(ARQUIVO_COOLDOWN, cooldowns)
 
-def esta_em_cooldown(user_id):
-    cooldowns = carregar_json(ARQUIVO_COOLDOWN)
-    agora = agora_brasil()
-    
-    user_id_str = str(user_id)
-    if user_id_str not in cooldowns:
-        return False
-    
-    dados = cooldowns[user_id_str]
-    
-    # Suporte para formato antigo (string)
-    if isinstance(dados, str):
-        expira_em = datetime.strptime(dados, "%Y-%m-%d %H:%M:%S")
-        # Converte para novo formato
-        cooldowns[user_id_str] = {
-            "expira": dados,
-            "avisado": False,
-            "motivo": "desconhecido",
-            "aplicado_por": "sistema",
-            "dias": 3,
-            "data_aplicacao": agora.strftime("%Y-%m-%d %H:%M:%S")
-        }
-        salvar_json(ARQUIVO_COOLDOWN, cooldowns)
-        
-        if agora >= expira_em:
-            del cooldowns[user_id_str]
-            salvar_json(ARQUIVO_COOLDOWN, cooldowns)
-            return False
-        return True
+
     
     # Formato novo (dicionário)
     expira_str = dados.get("expira")
