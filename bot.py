@@ -206,12 +206,7 @@ async def verificar_inatividade():
             salvar_json(ARQUIVO_IMUNES, imunes)
 
             # Aplica cooldown de 7 dias por inatividade
-            definir_cooldown(
-                user_id, 
-                dias=7, 
-                motivo="inatividade", 
-                aplicado_por="sistema"
-            )
+            definir_cooldown(user_id, dias=7)
 
             # Envia aviso no canal configurado
             if canal:
@@ -971,12 +966,7 @@ async def aplicar_cooldown(interaction: discord.Interaction, usuario: discord.Me
         return
     
     # Aplica o cooldown
-    definir_cooldown(
-        str(usuario.id), 
-        dias=dias, 
-        motivo="comando_administrativo", 
-        aplicado_por=interaction.user.name
-    )
+    definir_cooldown(user_id, dias=dias)
     
     # Calcula a data de expiração
     expira_em = agora_brasil() + timedelta(days=dias)
@@ -1141,7 +1131,7 @@ async def imune_status(interaction: discord.Interaction):
                                   value=f"Em andamento — {int(dias)}d {int(horas)}h {int(minutos)}min restantes.\n⏰ Expira: {expira.strftime('%d/%m/%Y %H:%M')}", 
                                   inline=False)
                 else:
-                    embed.add_field(name="⏳ Cooldown", value="Expirado (você pode adicionar outro).", inline=False)
+                    embed.add_field(name="⏳ Cooldown", value="Nenhum cooldown ativo.", inline=False)
             except (ValueError, TypeError) as e:
                 embed.add_field(name="⏳ Cooldown", value=f"Erro ao ler cooldown: {e}", inline=False)
     else:
@@ -1335,12 +1325,7 @@ async def on_message(message: discord.Message):
                 salvar_json(ARQUIVO_IMUNES, imunes)
 
                 # Aplica cooldown de 3 dias
-                definir_cooldown(
-                    user_id, 
-                    dias=3, 
-                    motivo="personagem_pego", 
-                    aplicado_por="sistema"
-                )
+                definir_cooldown(user_id, dias=3)
 
                 # Envia aviso no canal configurado
                 config = carregar_json(ARQUIVO_CONFIG)
@@ -1431,12 +1416,7 @@ async def on_message_edit(before, after):
             # Remove imunidade e aplica cooldown de 3 dias
             del imunes[guild_id][user_id]
             salvar_json(ARQUIVO_IMUNES, imunes)
-            definir_cooldown(
-                user_id, 
-                dias=3, 
-                motivo="casamento_personagem", 
-                aplicado_por="sistema"
-            )
+            definir_cooldown(user_id, dias=3)
 
 
 
