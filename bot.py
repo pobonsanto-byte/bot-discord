@@ -337,55 +337,45 @@ async def checar_atividade():
 def esta_em_cooldown(user_id):
     cooldowns = carregar_json(ARQUIVO_COOLDOWN)
     agora = agora_brasil()
-    expira_em_str = cooldowns.get(str(user_id))
-    if not expira_em_str:
+    cooldown_data = cooldowns.get(str(user_id))
+    
+    if not cooldown_data:
         return False
-    expira_em = datetime.strptime(expira_em_str, "%Y-%m-%d %H:%M:%S")
-    if agora >= expira_em:
-        del cooldowns[str(user_id)]
-        salvar_json(ARQUIVO_COOLDOWN, cooldowns)
-        return False
-    return True
-
-def definir_cooldown(user_id, dias=3, motivo="personagem_pego", aplicado_por="sistema"):
-    """
-    Define um cooldown para um usuário.
     
-    Args:
-        user_id: ID do usuário
-        dias: Quantidade de dias de cooldown (padrão: 3)
-        motivo: Razão do cooldown
-        aplicado_por: Quem aplicou o cooldown
-    """
-    cooldowns = carregar_json(ARQUIVO_COOLDOWN)
-    expira_em = agora_brasil() + timedelta(days=dias)
+    # Verifica se é formato antigo (string) ou novo (dicionário)
+    if isinstance(cooldown_data, dict):
+        expira_str = cooldown_data.get("expira")
+    else:
+        expira_str = cooldown_data
     
-    cooldowns[str(user_id)] = {
-        "expira": expira_em.strftime("%Y-%m-%d %H:%M:%S"),
-        "avisado": False,
-        "motivo": motivo,
-        "aplicado_por": aplicado_por,
-        "dias": dias,
-        "data_aplicacao": agora_brasil().strftime("%Y-%m-%d %H:%M:%S")
-    }
-    
-    salvar_json(ARQUIVO_COOLDOWN, cooldowns)
-
-
-    
-    # Formato novo (dicionário)
-    expira_str = dados.get("expira")
     if not expira_str:
         return False
     
-    expira_em = datetime.strptime(expira_str, "%Y-%m-%d %H:%M:%S")
+    try:
+        expira_em = datetime.strptime(expira_str, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return False
     
     if agora >= expira_em:
-        del cooldowns[user_id_str]
+        # Remove cooldown expirado
+        del cooldowns[str(user_id)]
         salvar_json(ARQUIVO_COOLDOWN, cooldowns)
         return False
     
     return True
+
+def definir_cooldown(user_id, dias=3):
+    """Define um cooldown para um usuário no formato dicionário."""
+    cooldowns = carregar_json(ARQUIVO_COOLDOWN)
+    expira_em = agora_brasil() + timedelta(days=dias)
+    
+    # Formato dicionário com campo de aviso
+    cooldowns[str(user_id)] = {
+        "expira": expira_em.strftime("%Y-%m-%d %H:%M:%S"),
+        "avisado": False
+    }
+    
+    salvar_json(ARQUIVO_COOLDOWN, cooldowns)
 
 # === YOUTUBE ===
 CANAL_YOUTUBE = "UCcMSONDJxb18PW5B8cxYdzQ"  # ID do canal
@@ -1116,24 +1106,47 @@ async def imune_lista(interaction: discord.Interaction):
 async def imune_status(interaction: discord.Interaction):
     user_id, guild_id = str(interaction.user.id), str(interaction.guild.id)
     imunes, cooldowns = carregar_json(ARQUIVO_IMUNES), carregar_json(ARQUIVO_COOLDOWN)
+    
     embed = discord.Embed(title=f"📊 Status de {interaction.user.display_name}", color=0x00B0F4)
+    
+    # Seção de imunidade
     if guild_id in imunes and user_id in imunes[guild_id]:
         p = imunes[guild_id][user_id]
         embed.add_field(name="🔒 Personagem Imune", value=f"**{p['personagem']}** — {p['origem']}\n📅 Desde: `{p['data']}`", inline=False)
     else:
         embed.add_field(name="🔒 Personagem Imune", value="Nenhum ativo.", inline=False)
+    
+    # Seção de cooldown (corrigida para lidar com ambos os formatos)
     if user_id in cooldowns:
-        expira = datetime.strptime(cooldowns[user_id], "%Y-%m-%d %H:%M:%S")
-        if expira > agora_brasil():
-            restante = expira - agora_brasil()
-            dias, resto = divmod(restante.total_seconds(), 86400)
-            horas, resto = divmod(resto, 3600)
-            minutos = (resto % 3600) // 60
-            embed.add_field(name="⏳ Cooldown", value=f"Em andamento — {int(dias)}d {int(horas)}h {int(minutos)}min restantes.", inline=False)
+        cooldown_data = cooldowns[user_id]
+        
+        # 🔹 Verifica se é formato novo (dicionário) ou antigo (string)
+        if isinstance(cooldown_data, dict):
+            expira_str = cooldown_data.get("expira")
         else:
-            embed.add_field(name="⏳ Cooldown", value="Expirado (você pode adicionar outro).", inline=False)
+            expira_str = cooldown_data
+        
+        if expira_str:
+            try:
+                expira = datetime.strptime(expira_str, "%Y-%m-%d %H:%M:%S")
+                agora = agora_brasil()
+                
+                if expira > agora:
+                    restante = expira - agora
+                    dias, resto = divmod(restante.total_seconds(), 86400)
+                    horas, resto = divmod(resto, 3600)
+                    minutos = (resto % 3600) // 60
+                    
+                    embed.add_field(name="⏳ Cooldown", 
+                                  value=f"Em andamento — {int(dias)}d {int(horas)}h {int(minutos)}min restantes.\n⏰ Expira: {expira.strftime('%d/%m/%Y %H:%M')}", 
+                                  inline=False)
+                else:
+                    embed.add_field(name="⏳ Cooldown", value="Expirado (você pode adicionar outro).", inline=False)
+            except (ValueError, TypeError) as e:
+                embed.add_field(name="⏳ Cooldown", value=f"Erro ao ler cooldown: {e}", inline=False)
     else:
         embed.add_field(name="⏳ Cooldown", value="Nenhum cooldown ativo.", inline=False)
+    
     await interaction.response.send_message(embed=embed)
 
 # === FUNÇÃO AUXILIAR ===
@@ -1445,24 +1458,29 @@ async def verificar_cooldowns():
 
     # === IDENTIFICA COOLDOWNS EXPIRADOS ===
     for user_id, data in cooldowns.items():
-        if isinstance(data, str):
-            # 🔹 Formato antigo: apenas uma string
-            try:
-                expira = datetime.strptime(data, "%Y-%m-%d %H:%M:%S")
-                avisado = False
-            except ValueError:
-                continue
-        else:
-            # 🔹 Formato novo: dicionário
+        # Agora todos devem ser dicionários
+        if isinstance(data, dict):
             expira_str = data.get("expira")
             avisado = data.get("avisado", False)
+            
+            if not expira_str:
+                continue
+                
             try:
                 expira = datetime.strptime(expira_str, "%Y-%m-%d %H:%M:%S")
             except Exception:
                 continue
 
-        if agora >= expira and not avisado:
-            expirados.append(user_id)
+            if agora >= expira and not avisado:
+                expirados.append(user_id)
+        # Mantém compatibilidade com formato antigo por segurança
+        elif isinstance(data, str):
+            try:
+                expira = datetime.strptime(data, "%Y-%m-%d %H:%M:%S")
+                if agora >= expira:
+                    expirados.append(user_id)
+            except Exception:
+                continue
 
     # === ENVIA AVISO PARA COOLDOWNS EXPIRADOS ===
     for user_id in expirados:
@@ -1489,8 +1507,9 @@ async def verificar_cooldowns():
                 print(f"⚠️ Erro ao notificar cooldown de {membro}: {e}")
                 continue
 
-        # Marca como avisado (para não enviar de novo)
+        # Marca como avisado
         if user_id in cooldowns:
+            # Converte formato antigo para novo se necessário
             if isinstance(cooldowns[user_id], str):
                 cooldowns[user_id] = {"expira": cooldowns[user_id], "avisado": aviso_enviado}
             else:
@@ -1503,26 +1522,29 @@ async def verificar_cooldowns():
         if isinstance(data, dict):
             expira_str = data.get("expira")
             avisado = data.get("avisado", False)
+            
+            if not expira_str:
+                continue
+                
             try:
                 expira = datetime.strptime(expira_str, "%Y-%m-%d %H:%M:%S")
             except Exception:
-                cooldowns_filtrados[uid] = data
                 continue
 
+            # Mantém se ainda não expirou OU se expirou mas não foi avisado
             if agora < expira or not avisado:
                 cooldowns_filtrados[uid] = data
-
+                
         elif isinstance(data, str):
             try:
                 expira = datetime.strptime(data, "%Y-%m-%d %H:%M:%S")
                 if agora < expira:
                     cooldowns_filtrados[uid] = data
             except Exception:
-                cooldowns_filtrados[uid] = data
+                continue
 
     salvar_json(ARQUIVO_COOLDOWN, cooldowns_filtrados)
     print(f"[LOOP] Cooldowns antes: {len(cooldowns)} | depois: {len(cooldowns_filtrados)} | {datetime.now()}")
-
 
 
 # === LOOP YOUTUBE ===
