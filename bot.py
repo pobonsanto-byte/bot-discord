@@ -965,8 +965,8 @@ async def aplicar_cooldown(interaction: discord.Interaction, usuario: discord.Me
         )
         return
     
-    # Aplica o cooldown
-    definir_cooldown(user_id, dias=dias)
+    # ✅ CORREÇÃO: Use str(usuario.id) em vez de user_id
+    definir_cooldown(str(usuario.id), dias=dias)
     
     # Calcula a data de expiração
     expira_em = agora_brasil() + timedelta(days=dias)
