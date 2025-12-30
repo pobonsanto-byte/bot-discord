@@ -1588,23 +1588,38 @@ async def on_ready():
     print(f"✅ Logado como {bot.user}")
 
 # === KEEP ALIVE ===
-app = Flask('')
-@app.route('/')
-def home(): return "🤖 Bot rodando!"
-def run(): app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
-Thread(target=run).start()
-def auto_ping():
-    while True:
-        try:
-            url = os.environ.get("REPLIT_URL")
-            if url: requests.get(url)
-            time.sleep(50)
-        except Exception as e:
-            print(f"Erro no ping: {e}")
-Thread(target=auto_ping, daemon=True).start()
+def run_bot():
+    """Função para rodar o bot com tratamento de erro"""
+    try:
+        bot.run(TOKEN)
+    except discord.errors.HTTPException as e:
+        if e.status == 429:
+            print("⚠️ Rate limited! Aguardando 60 segundos...")
+            time.sleep(60)
+            run_bot()  # Tenta novamente
+        else:
+            raise e
+    except Exception as e:
+        print(f"❌ Erro fatal: {e}")
+        raise
 
 if __name__ == "__main__":
     if not TOKEN:
-        print("❌ ERRO: DISCORD_BOT_TOKEN ausente!")
-    else:
-        bot.run(TOKEN)
+        print("❌ ERRO: TOKEN não encontrado!")
+        print("Configure a variável de ambiente TOKEN no Render")
+        exit(1)
+    
+    print("🚀 Iniciando bot Discord...")
+    
+    # Iniciar Flask em thread separada PRIMEIRO
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    
+    print("🌐 Servidor web iniciado na porta 8080")
+    print("🔧 Health check disponível em /health")
+    
+    # Pequeno delay para garantir que Flask está rodando
+    time.sleep(2)
+    
+    # Iniciar bot Discord
+    run_bot()
