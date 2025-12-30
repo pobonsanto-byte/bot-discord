@@ -1589,7 +1589,24 @@ async def on_ready():
     print(f"✅ Logado como {bot.user}")
 
 # === KEEP ALIVE ===
-def run_bot():
+# === FLASK APP ===
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "🤖 Bot Discord rodando no Render!"
+
+@app.route('/health')
+def health():
+    return "OK", 200
+
+def run_flask():
+    """Rodar Flask em thread separada"""
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
+
+# === BOT RUNNER ===
+def run_discord_bot():
     """Função para rodar o bot com tratamento de erro"""
     try:
         bot.run(TOKEN)
@@ -1597,13 +1614,14 @@ def run_bot():
         if e.status == 429:
             print("⚠️ Rate limited! Aguardando 60 segundos...")
             time.sleep(60)
-            run_bot()  # Tenta novamente
+            run_discord_bot()  # Tenta novamente
         else:
             raise e
     except Exception as e:
         print(f"❌ Erro fatal: {e}")
         raise
 
+# === MAIN ===
 if __name__ == "__main__":
     if not TOKEN:
         print("❌ ERRO: TOKEN não encontrado!")
@@ -1612,7 +1630,7 @@ if __name__ == "__main__":
     
     print("🚀 Iniciando bot Discord...")
     
-    # Iniciar Flask em thread separada PRIMEIRO
+    # Iniciar Flask em thread separada
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
     
@@ -1623,4 +1641,4 @@ if __name__ == "__main__":
     time.sleep(2)
     
     # Iniciar bot Discord
-    run_bot()
+    run_discord_bot()
