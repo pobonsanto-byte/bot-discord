@@ -1598,7 +1598,7 @@ def auto_ping():
         try:
             url = os.environ.get("REPLIT_URL")
             if url: requests.get(url)
-            time.sleep(300)
+            time.sleep(50)
         except Exception as e:
             print(f"Erro no ping: {e}")
 Thread(target=auto_ping, daemon=True).start()
