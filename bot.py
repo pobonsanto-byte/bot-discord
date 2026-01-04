@@ -1591,27 +1591,31 @@ async def on_ready():
 
 
 def web_server():
+    """Servidor web simples para manter a instância ativa"""
     def app(environ, start_response):
         status = '200 OK'
-        headers = [('Content-type', 'text/plain; charset=utf-8')]
+        headers = [('Content-type', 'text/plain')]
         start_response(status, headers)
-        return [b"🤖 Bot rodando!"]
+        # Use texto ASCII simples
+        return [b"Bot rodando!"]
     
     port = int(os.environ.get("PORT", 8080))
     with make_server('', port, app) as httpd:
-        print(f"✅ Servidor web rodando na porta {port}")
+        print(f"Servidor web rodando na porta {port}")
         httpd.serve_forever()
 
-# No __main__
 if __name__ == "__main__":
     if not TOKEN:
-        print("❌ ERRO: DISCORD_BOT_TOKEN ausente!")
+        print("ERRO: DISCORD_BOT_TOKEN ausente!")
     else:
-        # Inicia o servidor web em thread separada
+        # Inicia o bot na thread principal
+        print("Iniciando bot Discord...")
+        
+        # Cria thread para o servidor web
         web_thread = Thread(target=web_server, daemon=True)
         web_thread.start()
         
-        # Inicia o bot na thread principal
+        # Executa o bot (bloqueante)
         bot.run(TOKEN)
 
     run_discord_bot()
