@@ -16,6 +16,7 @@ from discord.ui import View, Button
 import xml.etree.ElementTree as ET
 import unicodedata
 import math
+from wsgiref.simple_server import make_server
 
 # === CONFIGURAÇÃO ===
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -1588,57 +1589,29 @@ async def verificar_youtube():
 async def on_ready():
     print(f"✅ Logado como {bot.user}")
 
-# === KEEP ALIVE ===
-# === FLASK APP ===
-app = Flask('')
 
-@app.route('/')
-def home():
-    return "🤖 Bot Discord rodando no Render!"
-
-@app.route('/health')
-def health():
-    return "OK", 200
-
-def run_flask():
-    """Rodar Flask em thread separada"""
+def web_server():
+    def app(environ, start_response):
+        status = '200 OK'
+        headers = [('Content-type', 'text/plain; charset=utf-8')]
+        start_response(status, headers)
+        return [b"🤖 Bot rodando!"]
+    
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    with make_server('', port, app) as httpd:
+        print(f"✅ Servidor web rodando na porta {port}")
+        httpd.serve_forever()
 
-# === BOT RUNNER ===
-def run_discord_bot():
-    """Função para rodar o bot com tratamento de erro"""
-    try:
-        bot.run(TOKEN)
-    except discord.errors.HTTPException as e:
-        if e.status == 429:
-            print("⚠️ Rate limited! Aguardando 60 segundos...")
-            time.sleep(60)
-            run_discord_bot()  # Tenta novamente
-        else:
-            raise e
-    except Exception as e:
-        print(f"❌ Erro fatal: {e}")
-        raise
-
-# === MAIN ===
+# No __main__
 if __name__ == "__main__":
     if not TOKEN:
-        print("❌ ERRO: TOKEN não encontrado!")
-        print("Configure a variável de ambiente TOKEN no Render")
-        exit(1)
-    
-    print("🚀 Iniciando bot Discord...")
-    
-    # Iniciar Flask em thread separada
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
-    flask_thread.start()
-    
-    print("🌐 Servidor web iniciado na porta 8080")
-    print("🔧 Health check disponível em /health")
-    
-    # Pequeno delay para garantir que Flask está rodando
-    time.sleep(2)
-    
-    # Iniciar bot Discord
+        print("❌ ERRO: DISCORD_BOT_TOKEN ausente!")
+    else:
+        # Inicia o servidor web em thread separada
+        web_thread = Thread(target=web_server, daemon=True)
+        web_thread.start()
+        
+        # Inicia o bot na thread principal
+        bot.run(TOKEN)
+
     run_discord_bot()
