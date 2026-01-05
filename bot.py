@@ -186,7 +186,6 @@ def s2_registro_automatico(uid, personagem, tipo):
     s2_save(ARQ_S2_PERSONAGENS, chars)
 
 # Função para fechar sala automaticamente (removendo acesso)
-# === FUNÇÃO PARA FECHAR SALA AUTOMATICAMENTE ===
 async def fechar_sala_automaticamente(user_id_str, guild):
     """Fecha uma sala automaticamente após o tempo limite removendo o acesso."""
     players = s2_load(ARQ_S2_PLAYERS)
@@ -204,13 +203,13 @@ async def fechar_sala_automaticamente(user_id_str, guild):
         usuario = guild.get_member(int(user_id_str))
         if usuario and cargo and cargo in usuario.roles:
             await usuario.remove_roles(cargo)
-            print(f"✅ Cargo {cargo.name} removido de {usuario.display_name}")
+            print(f"✅ [{agora_brasil().strftime('%H:%M:%S')}] Cargo {cargo.name} removido de {usuario.display_name}")
         
         # Se o canal existe, remove as permissões
         if canal:
             # Remove permissão do cargo no canal
             await canal.set_permissions(cargo, overwrite=None)
-            print(f"✅ Permissões removidas do canal {canal.name}")
+            print(f"✅ [{agora_brasil().strftime('%H:%M:%S')}] Permissões removidas do canal {canal.name}")
         
         # Consome uma rodada e atualiza status
         if user_id_str in players:
@@ -227,56 +226,105 @@ async def fechar_sala_automaticamente(user_id_str, guild):
                 )
                 embed.add_field(name="Rodadas restantes", value=f"{players[user_id_str]['rodadas']}/3", inline=True)
                 embed.add_field(name="Status", value="❌ Acesso removido", inline=True)
+                embed.set_footer(text=f"Horário Brasil: {agora_brasil().strftime('%H:%M:%S')}")
                 await usuario.send(embed=embed)
             except Exception as e:
-                print(f"⚠️ Erro ao enviar notificação para {usuario}: {e}")
+                print(f"⚠️ [{agora_brasil().strftime('%H:%M:%S')}] Erro ao enviar notificação para {usuario}: {e}")
         
         # Remove do controle de salas ativas
         if user_id_str in S2_SALAS_ATIVAS:
             del S2_SALAS_ATIVAS[user_id_str]
-            print(f"✅ Sala removida do controle: {user_id_str}")
+            print(f"✅ [{agora_brasil().strftime('%H:%M:%S')}] Sala removida do controle: {user_id_str}")
         
     except Exception as e:
-        print(f"⚠️ Erro ao fechar sala automaticamente de {user_id_str}: {e}")
+        print(f"⚠️ [{agora_brasil().strftime('%H:%M:%S')}] Erro ao fechar sala automaticamente de {user_id_str}: {e}")
 
-# === VERIFICAR SALAS EXPIRADAS (CORRIGIDO) ===
-@tasks.loop(minutes=1)
-async def verificar_salas_expiradas():
-    """Verifica e remove acesso de salas que passaram do tempo limite."""
-    agora = datetime.now()
-    
-    # Cria uma cópia para iterar
-    salas_a_fechar = []
-    for uid, info in list(S2_SALAS_ATIVAS.items()):
-        if "aberta_em" not in info:
-            print(f"⚠️ Sala {uid} não tem horário de abertura, removendo")
-            salas_a_fechar.append((uid, info.get("guild_id")))
-            continue
-            
-        tempo_aberta = agora - info["aberta_em"]
-        if tempo_aberta.total_seconds() >= S2_TEMPO_SALA:
-            print(f"⏰ Sala {uid} expirou há {tempo_aberta.total_seconds()//60} minutos, marcando para fechar")
-            salas_a_fechar.append((uid, info.get("guild_id")))
-    
-    # Remove acesso das salas expiradas
-    for uid, guild_id in salas_a_fechar:
-        if guild_id:
-            guild = bot.get_guild(guild_id)
-            if guild:
-                print(f"🔒 Fechando sala de {uid} no servidor {guild.name}")
-                await fechar_sala_automaticamente(uid, guild)
-            else:
-                print(f"⚠️ Servidor {guild_id} não encontrado para fechar sala de {uid}")
-        else:
-            print(f"⚠️ Sala {uid} não tem guild_id, removendo do controle")
-            if uid in S2_SALAS_ATIVAS:
-                del S2_SALAS_ATIVAS[uid]
-    
-    # Log informativo
-    if salas_a_fechar:
-        print(f"📊 Salas fechadas: {len(salas_a_fechar)}")
-    print(f"🔄 Salas ativas no momento: {len(S2_SALAS_ATIVAS)}")
+# === BOT ===
+# Mudando para usar commands.Bot em vez de discord.Client
+class ImuneBot(commands.Bot):
+    def __init__(self):
+        intents = discord.Intents.default()
+        intents.messages = True
+        intents.guilds = True
+        intents.message_content = True
+        intents.members = True
+        super().__init__(command_prefix="$", intents=intents)
 
+    async def setup_hook(self):
+        # Sincroniza comandos slash
+        await self.tree.sync()
+        
+        # Inicia as tasks
+        verificar_imunidades.start()
+        verificar_youtube.start()
+        verificar_cooldowns.start()
+        verificar_inatividade.start()
+        checar_atividade.before_loop(self.wait_until_ready)
+        checar_atividade.start()
+        s2_reset.start()
+        verificar_salas_expiradas.start()
+
+        # ✅ Executa o loop uma vez manualmente na inicialização
+        await checar_atividade()
+
+        print("✅ Bot totalmente inicializado e checagem feita uma vez.")
+
+bot = ImuneBot()
+
+# === CANAL DE IMUNIDADE ===
+def canal_imunidade():
+    async def predicate(interaction: discord.Interaction) -> bool:
+        guild_id = str(interaction.guild.id)
+        config = carregar_json(ARQUIVO_CONFIG)
+        canal_id = config.get(guild_id)
+        if not canal_id:
+            await interaction.response.send_message(
+                "⚙️ O canal de imunidade ainda não foi configurado. Use `/set_canal_imune`.",
+                ephemeral=True
+            )
+            return False
+        if interaction.channel.id == canal_id:
+            return True
+        await interaction.response.send_message(
+            "❌ Esse comando só pode ser usado no canal configurado para imunidades.",
+            ephemeral=True
+        )
+        return False
+    return app_commands.check(predicate)
+
+# === PAGINAÇÃO ===
+class ListaImunesView(View):
+    def __init__(self, grupos, timeout=120):
+        super().__init__(timeout=timeout)
+        self.grupos = list(grupos.items())
+        self.page = 0
+        self.total_pages = (len(self.grupos) - 1) // 3 + 1
+        self.message = None
+        if self.total_pages > 1:
+            b1 = Button(label="⬅️", style=discord.ButtonStyle.gray)
+            b1.callback = self.anterior_callback
+            b2 = Button(label="➡️", style=discord.ButtonStyle.gray)
+            b2.callback = self.proximo_callback
+            self.add_item(b1)
+            self.add_item(b2)
+    def gerar_embed(self):
+        embed = discord.Embed(title="🧾 Lista de Personagens Imunes", color=0x5865F2)
+        start, end = self.page * 3, self.page * 3 + 3
+        for origem, lista in self.grupos[start:end]:
+            texto = "\n".join(f"• **{d['personagem']}** — {d['usuario']}" for d in lista)
+            embed.add_field(name=f"🎮 {origem}", value=texto, inline=False)
+        embed.set_footer(text=f"Página {self.page+1}/{self.total_pages}")
+        return embed
+    async def anterior_callback(self, i):
+        if self.page > 0:
+            self.page -= 1
+            await i.response.edit_message(embed=self.gerar_embed(), view=self)
+    async def proximo_callback(self, i):
+        if self.page < self.total_pages - 1:
+            self.page += 1
+            await i.response.edit_message(embed=self.gerar_embed(), view=self)
+
+# === LOOP DE VERIFICAÇÃO DE INATIVIDADE ===
 @tasks.loop(hours=1)
 async def verificar_inatividade():
     agora = agora_brasil()
@@ -577,90 +625,6 @@ def verificar_novos_videos():
 
     salvar_youtube(antigos[-50:])  # Mantém histórico recente
     return novos
-
-# === BOT ===
-class ImuneBot(discord.Client):
-    def __init__(self):
-        intents = discord.Intents.default()
-        intents.messages = True
-        intents.guilds = True
-        intents.message_content = True
-        intents.members = True
-        bot = commands.Bot(command_prefix="$", intents=intents)
-        super().__init__(intents=intents)
-        self.tree = app_commands.CommandTree(self)
-
-    async def setup_hook(self):
-        await self.tree.sync()
-
-        verificar_imunidades.start()
-        verificar_youtube.start()
-        verificar_cooldowns.start()
-        verificar_inatividade.start()
-        checar_atividade.before_loop(self.wait_until_ready)
-        checar_atividade.start()
-        s2_reset.start()
-        verificar_salas_expiradas.start()
-
-        # ✅ Executa o loop uma vez manualmente na inicialização
-        await checar_atividade()
-
-        print("✅ Bot totalmente inicializado e checagem feita uma vez.")
-
-bot = ImuneBot()
-
-# === CANAL DE IMUNIDADE ===
-def canal_imunidade():
-    async def predicate(interaction: discord.Interaction) -> bool:
-        guild_id = str(interaction.guild.id)
-        config = carregar_json(ARQUIVO_CONFIG)
-        canal_id = config.get(guild_id)
-        if not canal_id:
-            await interaction.response.send_message(
-                "⚙️ O canal de imunidade ainda não foi configurado. Use `/set_canal_imune`.",
-                ephemeral=True
-            )
-            return False
-        if interaction.channel.id == canal_id:
-            return True
-        await interaction.response.send_message(
-            "❌ Esse comando só pode ser usado no canal configurado para imunidades.",
-            ephemeral=True
-        )
-        return False
-    return app_commands.check(predicate)
-
-# === PAGINAÇÃO ===
-class ListaImunesView(View):
-    def __init__(self, grupos, timeout=120):
-        super().__init__(timeout=timeout)
-        self.grupos = list(grupos.items())
-        self.page = 0
-        self.total_pages = (len(self.grupos) - 1) // 3 + 1
-        self.message = None
-        if self.total_pages > 1:
-            b1 = Button(label="⬅️", style=discord.ButtonStyle.gray)
-            b1.callback = self.anterior_callback
-            b2 = Button(label="➡️", style=discord.ButtonStyle.gray)
-            b2.callback = self.proximo_callback
-            self.add_item(b1)
-            self.add_item(b2)
-    def gerar_embed(self):
-        embed = discord.Embed(title="🧾 Lista de Personagens Imunes", color=0x5865F2)
-        start, end = self.page * 3, self.page * 3 + 3
-        for origem, lista in self.grupos[start:end]:
-            texto = "\n".join(f"• **{d['personagem']}** — {d['usuario']}" for d in lista)
-            embed.add_field(name=f"🎮 {origem}", value=texto, inline=False)
-        embed.set_footer(text=f"Página {self.page+1}/{self.total_pages}")
-        return embed
-    async def anterior_callback(self, i):
-        if self.page > 0:
-            self.page -= 1
-            await i.response.edit_message(embed=self.gerar_embed(), view=self)
-    async def proximo_callback(self, i):
-        if self.page < self.total_pages - 1:
-            self.page += 1
-            await i.response.edit_message(embed=self.gerar_embed(), view=self)
 
 # === COMANDOS ADMIN ===
 @bot.tree.command(name="isencao_inatividade", description="Concede ou remove isenção de penalidade por inatividade de um usuário.")
@@ -1412,7 +1376,6 @@ async def sala_privada_aprovar(
     )
 
 # ---------- ABRIR SALA (CRIANDO SALA INDIVIDUAL) ----------
-# ---------- ABRIR SALA (CRIANDO SALA INDIVIDUAL) ----------
 @bot.tree.command(name="sala_privada_abrir", description="Abre sua sala privada individual por 10 minutos.")
 async def sala_privada_abrir(interaction: discord.Interaction):
     uid = str(interaction.user.id)
@@ -1451,7 +1414,7 @@ async def sala_privada_abrir(interaction: discord.Interaction):
         if role.name.startswith(f"sala-{interaction.user.display_name}") or role.name.startswith(f"privada-{interaction.user.display_name}"):
             try:
                 await role.delete()
-                print(f"🧹 Cargo antigo removido: {role.name}")
+                print(f"🧹 [{agora_brasil().strftime('%H:%M:%S')}] Cargo antigo removido: {role.name}")
             except:
                 pass
 
@@ -1470,7 +1433,7 @@ async def sala_privada_abrir(interaction: discord.Interaction):
         if channel.name.startswith(f"🔐-privada-{interaction.user.display_name}".lower()):
             try:
                 await channel.delete()
-                print(f"🧹 Canal antigo removido: {channel.name}")
+                print(f"🧹 [{agora_brasil().strftime('%H:%M:%S')}] Canal antigo removido: {channel.name}")
             except:
                 pass
 
@@ -1508,19 +1471,22 @@ async def sala_privada_abrir(interaction: discord.Interaction):
     p["rodadas"] -= 1
     s2_save(ARQ_S2_PLAYERS, players)
     
-    # Armazena informação da sala ativa COM DATA/HORA CORRETA
-    agora = datetime.now()
+    # Armazena informação da sala ativa COM HORÁRIO DE BRASÍLIA
+    agora = agora_brasil()
+    expira_em = agora + timedelta(seconds=S2_TEMPO_SALA)
+    
     S2_SALAS_ATIVAS[uid] = {
         "cargo_id": cargo.id,
         "canal_id": canal.id,
         "cargo": cargo,
         "canal": canal,
-        "aberta_em": agora,  # ⚠️ CORRIGIDO: Usar datetime agora
+        "aberta_em": agora,  # ⚠️ CORRIGIDO: Usar horário de Brasília
+        "expira_em": expira_em,  # Horário de expiração
         "guild_id": guild_id,
         "usuario_nome": interaction.user.display_name
     }
     
-    print(f"✅ Sala aberta para {uid}: cargo={cargo.name}, canal={canal.name}, aberta_em={agora}")
+    print(f"✅ [{agora.strftime('%H:%M:%S')}] Sala aberta para {uid}: cargo={cargo.name}, canal={canal.name}, expira_em={expira_em.strftime('%H:%M:%S')}")
 
     # Envia mensagem de confirmação
     embed = discord.Embed(
@@ -1531,7 +1497,8 @@ async def sala_privada_abrir(interaction: discord.Interaction):
     embed.add_field(name="Tempo limite", value=f"{S2_TEMPO_SALA//60} minutos", inline=True)
     embed.add_field(name="Rodadas restantes hoje", value=f"{p['rodadas']}/3", inline=True)
     embed.add_field(name="Cargo de acesso", value=f"{cargo.mention}", inline=True)
-    embed.add_field(name="⏰ Abertura", value=f"{agora.strftime('%H:%M:%S')}", inline=True)
+    embed.add_field(name="⏰ Abertura (BR)", value=f"{agora.strftime('%H:%M:%S')}", inline=True)
+    embed.add_field(name="⏳ Expira em (BR)", value=f"{expira_em.strftime('%H:%M:%S')}", inline=True)
     embed.add_field(name="Aviso", value="O acesso será removido automaticamente após 10 minutos.", inline=False)
     
     await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -1543,11 +1510,13 @@ async def sala_privada_abrir(interaction: discord.Interaction):
         color=discord.Color.blurple()
     )
     embed_sala.add_field(name="📝 Regras", value="• O acesso dura 10 minutos\n• Você pode usar comandos da Mudae normalmente\n• Aproveite sua rolagem privada!", inline=False)
-    embed_sala.add_field(name="⏰ Abertura", value=f"{agora.strftime('%H:%M:%S')}", inline=True)
+    embed_sala.add_field(name="⏰ Abertura (BR)", value=f"{agora.strftime('%H:%M:%S')}", inline=True)
+    embed_sala.add_field(name="⏳ Expira em (BR)", value=f"{expira_em.strftime('%H:%M:%S')}", inline=True)
     embed_sala.add_field(name="🎮 Rodadas restantes", value=f"`{p['rodadas']}/3`", inline=True)
-    embed_sala.set_footer(text="A sala será fechada automaticamente após 10 minutos")
+    embed_sala.set_footer(text=f"A sala será fechada automaticamente às {expira_em.strftime('%H:%M:%S')} (BR)")
     
     await canal.send(embed=embed_sala)
+
 # ---------- FECHAR SALA MANUALMENTE ----------
 @bot.tree.command(name="sala_privada_fechar", description="Fecha sua sala privada manualmente.")
 async def sala_privada_fechar(interaction: discord.Interaction):
@@ -1583,6 +1552,7 @@ async def sala_privada_fechar(interaction: discord.Interaction):
         embed.add_field(name="Status", value="❌ Acesso removido", inline=True)
         if canal:
             embed.add_field(name="Canal", value=f"{canal.mention}", inline=True)
+        embed.set_footer(text=f"Horário Brasil: {agora_brasil().strftime('%H:%M:%S')}")
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
     else:
@@ -1612,26 +1582,47 @@ async def s2_reset():
 @tasks.loop(minutes=1)
 async def verificar_salas_expiradas():
     """Verifica e remove acesso de salas que passaram do tempo limite."""
-    agora = datetime.now()
+    agora = agora_brasil()
     
     # Cria uma cópia para iterar
     salas_a_fechar = []
     for uid, info in list(S2_SALAS_ATIVAS.items()):
+        if "aberta_em" not in info:
+            print(f"⚠️ [{agora.strftime('%H:%M:%S')}] Sala {uid} não tem horário de abertura, removendo")
+            salas_a_fechar.append((uid, info.get("guild_id")))
+            continue
+            
+        # Verifica usando horário de Brasília
         tempo_aberta = agora - info["aberta_em"]
         if tempo_aberta.total_seconds() >= S2_TEMPO_SALA:
-            salas_a_fechar.append((uid, info["guild_id"]))
+            print(f"⏰ [{agora.strftime('%H:%M:%S')}] Sala {uid} expirou há {tempo_aberta.total_seconds()//60} minutos, marcando para fechar")
+            salas_a_fechar.append((uid, info.get("guild_id")))
     
     # Remove acesso das salas expiradas
     for uid, guild_id in salas_a_fechar:
-        guild = bot.get_guild(guild_id)
-        if guild:
-            await fechar_sala_automaticamente(uid, guild)
+        if guild_id:
+            guild = bot.get_guild(guild_id)
+            if guild:
+                print(f"🔒 [{agora.strftime('%H:%M:%S')}] Fechando sala de {uid} no servidor {guild.name}")
+                await fechar_sala_automaticamente(uid, guild)
+            else:
+                print(f"⚠️ [{agora.strftime('%H:%M:%S')}] Servidor {guild_id} não encontrado para fechar sala de {uid}")
+        else:
+            print(f"⚠️ [{agora.strftime('%H:%M:%S')}] Sala {uid} não tem guild_id, removendo do controle")
+            if uid in S2_SALAS_ATIVAS:
+                del S2_SALAS_ATIVAS[uid]
+    
+    # Log informativo
+    if salas_a_fechar:
+        print(f"📊 [{agora.strftime('%H:%M:%S')}] Salas fechadas: {len(salas_a_fechar)}")
+    print(f"🔄 [{agora.strftime('%H:%M:%S')}] Salas ativas no momento: {len(S2_SALAS_ATIVAS)}")
 
 # ---------- STATUS SALA ----------
 @bot.tree.command(name="sala_status", description="Mostra seu status atual da Sala Privada.")
 async def sala_status(interaction: discord.Interaction):
     uid = str(interaction.user.id)
     players = s2_load(ARQ_S2_PLAYERS)
+    agora = agora_brasil()
     
     p = players.get(uid)
     if not p:
@@ -1641,6 +1632,7 @@ async def sala_status(interaction: discord.Interaction):
             color=discord.Color.red()
         )
         embed.add_field(name="Ação necessária", value="Use `/sala_privada_aplicar` para aplicar.", inline=False)
+        embed.set_footer(text=f"Horário Brasil: {agora.strftime('%H:%M:%S')}")
         await interaction.response.send_message(embed=embed, ephemeral=True)
         return
     
@@ -1648,6 +1640,7 @@ async def sala_status(interaction: discord.Interaction):
         title="📊 Status da Sala Privada",
         color=discord.Color.blue()
     )
+    embed.set_footer(text=f"Horário Brasil: {agora.strftime('%H:%M:%S')}")
     
     # Status
     status_emoji = "🟢" if p["status"] == "aprovado" else "🟡" if p["status"] == "pendente" else "🔴"
@@ -1678,16 +1671,78 @@ async def sala_status(interaction: discord.Interaction):
                 if canal:
                     embed.add_field(name="Sala atual", value=f"{canal.mention}", inline=False)
                     
-                    # Calcula tempo restante
-                    tempo_passado = (datetime.now() - sala_info["aberta_em"]).total_seconds()
+                    # Calcula tempo restante usando horário de Brasília
+                    tempo_passado = (agora - sala_info["aberta_em"]).total_seconds()
                     tempo_restante = max(0, S2_TEMPO_SALA - tempo_passado)
                     minutos = int(tempo_restante // 60)
                     segundos = int(tempo_restante % 60)
                     
+                    # Horário de expiração
+                    if "expira_em" in sala_info:
+                        expira_str = sala_info["expira_em"].strftime("%H:%M:%S")
+                    else:
+                        expira_em = sala_info["aberta_em"] + timedelta(seconds=S2_TEMPO_SALA)
+                        expira_str = expira_em.strftime("%H:%M:%S")
+                    
                     embed.add_field(name="⏰ Tempo restante", value=f"{minutos}m {segundos}s", inline=True)
+                    embed.add_field(name="⏳ Expira em (BR)", value=expira_str, inline=True)
             embed.description = "Você tem uma sala ativa no momento."
         else:
             embed.description = "Você não tem rodadas disponíveis hoje."
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+# ---------- DEBUG SALAS ----------
+@bot.tree.command(name="debug_salas", description="Debug: mostra informações das salas ativas (apenas administradores).")
+@app_commands.checks.has_permissions(administrator=True)
+async def debug_salas(interaction: discord.Interaction):
+    """Comando de debug para verificar salas ativas."""
+    agora = agora_brasil()
+    
+    if not S2_SALAS_ATIVAS:
+        await interaction.response.send_message("📭 Nenhuma sala ativa no momento.", ephemeral=True)
+        return
+    
+    embed = discord.Embed(
+        title="🔍 Debug - Salas Ativas",
+        description=f"Total: {len(S2_SALAS_ATIVAS)} sala(s)\nHorário Brasil: {agora.strftime('%H:%M:%S')}",
+        color=discord.Color.orange()
+    )
+    
+    for uid, info in S2_SALAS_ATIVAS.items():
+        usuario = interaction.guild.get_member(int(uid))
+        nome_usuario = usuario.display_name if usuario else "Desconhecido"
+        
+        if "aberta_em" in info:
+            tempo_passado = (agora - info["aberta_em"]).total_seconds()
+            minutos_passados = int(tempo_passado // 60)
+            segundos_passados = int(tempo_passado % 60)
+            
+            tempo_restante = max(0, S2_TEMPO_SALA - tempo_passado)
+            minutos_restantes = int(tempo_restante // 60)
+            segundos_restantes = int(tempo_restante % 60)
+            
+            # Horário de expiração
+            if "expira_em" in info:
+                expira_str = info["expira_em"].strftime("%H:%M:%S")
+            else:
+                expira_em = info["aberta_em"] + timedelta(seconds=S2_TEMPO_SALA)
+                expira_str = expira_em.strftime("%H:%M:%S")
+            
+            status = f"✅ Ativa ({minutos_restantes}m {segundos_restantes}s restantes)" if tempo_restante > 0 else f"⚠️ Expirada há {abs(minutos_restantes)}m"
+            detalhes = f"Abertura: {info['aberta_em'].strftime('%H:%M:%S')}\nExpira: {expira_str}"
+        else:
+            status = "❌ Sem horário de abertura"
+            detalhes = "Informação incompleta"
+        
+        cargo_nome = info.get("cargo", "Cargo não encontrado").name if hasattr(info.get("cargo"), 'name') else "N/A"
+        canal_nome = info.get("canal", "Canal não encontrado").name if hasattr(info.get("canal"), 'name') else "N/A"
+        
+        embed.add_field(
+            name=f"👤 {nome_usuario}",
+            value=f"**ID:** {uid}\n**Status:** {status}\n**Cargo:** {cargo_nome}\n**Canal:** {canal_nome}\n**Detalhes:** {detalhes}",
+            inline=False
+        )
     
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
@@ -2132,7 +2187,7 @@ async def on_ready():
         if "categoria_salas" in config and guild_id in config["categoria_salas"]:
             global S2_CATEGORIA_SALAS_ID
             S2_CATEGORIA_SALAS_ID = config["categoria_salas"][guild_id]
-            print(f"✅ Categoria de salas carregada para {guild.name}: {S2_CATEGORIA_SALAS_ID}")
+            print(f"✅ [{agora_brasil().strftime('%H:%M:%S')}] Categoria de salas carregada para {guild.name}: {S2_CATEGORIA_SALAS_ID}")
             break
 
 def web_server():
