@@ -1310,7 +1310,7 @@ async def sala_privada_apply(interaction: discord.Interaction):
                 description=f"**Usuário:** {interaction.user.mention}\n**ID:** {interaction.user.id}\n**Nome:** {interaction.user.display_name}",
                 color=discord.Color.blue()
             )
-            embed.set_footer(text=f"Use /sala_privada_aprovar {interaction.user.id} para aprovar")
+            embed.set_footer(text=f"Use /sala_privada_aprovar para aprovar")
             await canal.send(embed=embed)
     
     await interaction.response.send_message(
