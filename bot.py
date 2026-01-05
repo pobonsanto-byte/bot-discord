@@ -199,7 +199,7 @@ def s2_registro_automatico(uid, personagem, tipo):
     })
     s2_save(ARQ_S2_PERSONAGENS, chars)
 
-# Função para fechar sala automaticamente (removendo acesso)
+#------ FECHAR SALA -------
 async def fechar_sala_automaticamente(uid: str, guild: discord.Guild):
     salas = s2_load_salas()
     players = s2_load(ARQ_S2_PLAYERS)
@@ -215,30 +215,28 @@ async def fechar_sala_automaticamente(uid: str, guild: discord.Guild):
     # === DM ===
     if membro:
         embed_dm = discord.Embed(
-            title="⏰ Sala Privada Encerrada",
+            title="⏰ Sala Privada Expirada",
             description="Seu acesso à sala privada foi removido.",
             color=discord.Color.orange()
         )
-        embed_dm.add_field(name="Motivo", value="Tempo limite de 10 minutos", inline=False)
+        embed_dm.add_field(
+            name="Motivo",
+            value="Tempo limite de 10 minutos",
+            inline=False
+        )
         await enviar_dm(membro, embed_dm)
 
+    # === REMOVE APENAS O ACESSO ===
     if membro and cargo:
         await membro.remove_roles(cargo)
-
-    if canal:
-        await canal.delete()
-
-    if cargo:
-        await cargo.delete()
 
     if uid in players:
         players[uid]["sala_ativa"] = False
         s2_save(ARQ_S2_PLAYERS, players)
 
+    # Remove do controle de salas ativas
     del salas[uid]
     s2_save_salas(salas)
-
-
 
 # === BOT ===
 # Mudando para usar commands.Bot em vez de discord.Client
