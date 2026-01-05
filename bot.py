@@ -390,7 +390,7 @@ class ImuneBot(commands.Bot):
         intents.members = True
         super().__init__(command_prefix="$", intents=intents)
 
-    async def setup_hook(self):
+    async def setup_hook():
         bot.add_view(PainelSalaView())
         # Sincroniza comandos slash
         await self.tree.sync()
