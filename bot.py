@@ -186,6 +186,7 @@ def s2_registro_automatico(uid, personagem, tipo):
     s2_save(ARQ_S2_PERSONAGENS, chars)
 
 # Função para fechar sala automaticamente (removendo acesso)
+# === FUNÇÃO PARA FECHAR SALA AUTOMATICAMENTE ===
 async def fechar_sala_automaticamente(user_id_str, guild):
     """Fecha uma sala automaticamente após o tempo limite removendo o acesso."""
     players = s2_load(ARQ_S2_PLAYERS)
@@ -198,41 +199,83 @@ async def fechar_sala_automaticamente(user_id_str, guild):
     cargo = sala_info.get("cargo")
     canal = sala_info.get("canal")
     
-    if cargo:
-        try:
-            # Remove o cargo do usuário
-            usuario = guild.get_member(int(user_id_str))
-            if usuario and cargo in usuario.roles:
-                await usuario.remove_roles(cargo)
-            
-            # Consome uma rodada
-            if user_id_str in players:
-                players[user_id_str]["rodadas"] -= 1
-                players[user_id_str]["sala_ativa"] = False
-                
-                # Notifica o usuário
-                try:
-                    embed = discord.Embed(
-                        title="⏰ Sala Privada Expirada",
-                        description=f"Seu acesso à sala privada foi removido automaticamente após {S2_TEMPO_SALA//60} minutos.",
-                        color=discord.Color.orange()
-                    )
-                    embed.add_field(name="Rodadas restantes", value=f"{players[user_id_str]['rodadas']}/3", inline=True)
-                    embed.add_field(name="Status", value="❌ Acesso removido", inline=True)
-                    await usuario.send(embed=embed)
-                except:
-                    pass
-            
-            # Remove do controle de salas ativas
-            if user_id_str in S2_SALAS_ATIVAS:
-                del S2_SALAS_ATIVAS[user_id_str]
-            
+    try:
+        # Remove o cargo do usuário
+        usuario = guild.get_member(int(user_id_str))
+        if usuario and cargo and cargo in usuario.roles:
+            await usuario.remove_roles(cargo)
+            print(f"✅ Cargo {cargo.name} removido de {usuario.display_name}")
+        
+        # Se o canal existe, remove as permissões
+        if canal:
+            # Remove permissão do cargo no canal
+            await canal.set_permissions(cargo, overwrite=None)
+            print(f"✅ Permissões removidas do canal {canal.name}")
+        
+        # Consome uma rodada e atualiza status
+        if user_id_str in players:
+            players[user_id_str]["rodadas"] -= 1
+            players[user_id_str]["sala_ativa"] = False
             s2_save(ARQ_S2_PLAYERS, players)
             
-            print(f"✅ Acesso à sala removido de {user_id_str} automaticamente.")
+            # Notifica o usuário
+            try:
+                embed = discord.Embed(
+                    title="⏰ Sala Privada Expirada",
+                    description=f"Seu acesso à sala privada foi removido automaticamente após {S2_TEMPO_SALA//60} minutos.",
+                    color=discord.Color.orange()
+                )
+                embed.add_field(name="Rodadas restantes", value=f"{players[user_id_str]['rodadas']}/3", inline=True)
+                embed.add_field(name="Status", value="❌ Acesso removido", inline=True)
+                await usuario.send(embed=embed)
+            except Exception as e:
+                print(f"⚠️ Erro ao enviar notificação para {usuario}: {e}")
+        
+        # Remove do controle de salas ativas
+        if user_id_str in S2_SALAS_ATIVAS:
+            del S2_SALAS_ATIVAS[user_id_str]
+            print(f"✅ Sala removida do controle: {user_id_str}")
+        
+    except Exception as e:
+        print(f"⚠️ Erro ao fechar sala automaticamente de {user_id_str}: {e}")
+
+# === VERIFICAR SALAS EXPIRADAS (CORRIGIDO) ===
+@tasks.loop(minutes=1)
+async def verificar_salas_expiradas():
+    """Verifica e remove acesso de salas que passaram do tempo limite."""
+    agora = datetime.now()
+    
+    # Cria uma cópia para iterar
+    salas_a_fechar = []
+    for uid, info in list(S2_SALAS_ATIVAS.items()):
+        if "aberta_em" not in info:
+            print(f"⚠️ Sala {uid} não tem horário de abertura, removendo")
+            salas_a_fechar.append((uid, info.get("guild_id")))
+            continue
             
-        except Exception as e:
-            print(f"⚠️ Erro ao fechar sala automaticamente: {e}")
+        tempo_aberta = agora - info["aberta_em"]
+        if tempo_aberta.total_seconds() >= S2_TEMPO_SALA:
+            print(f"⏰ Sala {uid} expirou há {tempo_aberta.total_seconds()//60} minutos, marcando para fechar")
+            salas_a_fechar.append((uid, info.get("guild_id")))
+    
+    # Remove acesso das salas expiradas
+    for uid, guild_id in salas_a_fechar:
+        if guild_id:
+            guild = bot.get_guild(guild_id)
+            if guild:
+                print(f"🔒 Fechando sala de {uid} no servidor {guild.name}")
+                await fechar_sala_automaticamente(uid, guild)
+            else:
+                print(f"⚠️ Servidor {guild_id} não encontrado para fechar sala de {uid}")
+        else:
+            print(f"⚠️ Sala {uid} não tem guild_id, removendo do controle")
+            if uid in S2_SALAS_ATIVAS:
+                del S2_SALAS_ATIVAS[uid]
+    
+    # Log informativo
+    if salas_a_fechar:
+        print(f"📊 Salas fechadas: {len(salas_a_fechar)}")
+    print(f"🔄 Salas ativas no momento: {len(S2_SALAS_ATIVAS)}")
 
 @tasks.loop(hours=1)
 async def verificar_inatividade():
@@ -1369,6 +1412,7 @@ async def sala_privada_aprovar(
     )
 
 # ---------- ABRIR SALA (CRIANDO SALA INDIVIDUAL) ----------
+# ---------- ABRIR SALA (CRIANDO SALA INDIVIDUAL) ----------
 @bot.tree.command(name="sala_privada_abrir", description="Abre sua sala privada individual por 10 minutos.")
 async def sala_privada_abrir(interaction: discord.Interaction):
     uid = str(interaction.user.id)
@@ -1464,15 +1508,19 @@ async def sala_privada_abrir(interaction: discord.Interaction):
     p["rodadas"] -= 1
     s2_save(ARQ_S2_PLAYERS, players)
     
-    # Armazena informação da sala ativa
+    # Armazena informação da sala ativa COM DATA/HORA CORRETA
+    agora = datetime.now()
     S2_SALAS_ATIVAS[uid] = {
         "cargo_id": cargo.id,
         "canal_id": canal.id,
         "cargo": cargo,
         "canal": canal,
-        "aberta_em": datetime.now(),
-        "guild_id": guild_id
+        "aberta_em": agora,  # ⚠️ CORRIGIDO: Usar datetime agora
+        "guild_id": guild_id,
+        "usuario_nome": interaction.user.display_name
     }
+    
+    print(f"✅ Sala aberta para {uid}: cargo={cargo.name}, canal={canal.name}, aberta_em={agora}")
 
     # Envia mensagem de confirmação
     embed = discord.Embed(
@@ -1483,7 +1531,8 @@ async def sala_privada_abrir(interaction: discord.Interaction):
     embed.add_field(name="Tempo limite", value=f"{S2_TEMPO_SALA//60} minutos", inline=True)
     embed.add_field(name="Rodadas restantes hoje", value=f"{p['rodadas']}/3", inline=True)
     embed.add_field(name="Cargo de acesso", value=f"{cargo.mention}", inline=True)
-    embed.add_field(name="Aviso", value="O acesso será removido automaticamente após o tempo limite.", inline=False)
+    embed.add_field(name="⏰ Abertura", value=f"{agora.strftime('%H:%M:%S')}", inline=True)
+    embed.add_field(name="Aviso", value="O acesso será removido automaticamente após 10 minutos.", inline=False)
     
     await interaction.response.send_message(embed=embed, ephemeral=True)
     
@@ -1494,12 +1543,11 @@ async def sala_privada_abrir(interaction: discord.Interaction):
         color=discord.Color.blurple()
     )
     embed_sala.add_field(name="📝 Regras", value="• O acesso dura 10 minutos\n• Você pode usar comandos da Mudae normalmente\n• Aproveite sua rolagem privada!", inline=False)
-    embed_sala.add_field(name="⏰ Tempo restante", value=f"`{S2_TEMPO_SALA//60} minutos`", inline=True)
+    embed_sala.add_field(name="⏰ Abertura", value=f"{agora.strftime('%H:%M:%S')}", inline=True)
     embed_sala.add_field(name="🎮 Rodadas restantes", value=f"`{p['rodadas']}/3`", inline=True)
     embed_sala.set_footer(text="A sala será fechada automaticamente após 10 minutos")
     
     await canal.send(embed=embed_sala)
-
 # ---------- FECHAR SALA MANUALMENTE ----------
 @bot.tree.command(name="sala_privada_fechar", description="Fecha sua sala privada manualmente.")
 async def sala_privada_fechar(interaction: discord.Interaction):
