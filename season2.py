@@ -5,8 +5,8 @@ import asyncio
 import random
 from datetime import datetime
 import json
-import pytz
-from bot import carregar_json, salvar_json, agora_brasil
+from utils import carregar_json, salvar_json, agora_brasil
+
 
 
 # =============================
@@ -39,6 +39,7 @@ def s2_load(arq):
 
 def s2_save(arq, dados):
     salvar_json(arq, dados)
+
 
 
 # =============================
