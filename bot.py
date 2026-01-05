@@ -1377,7 +1377,10 @@ async def sala_privada_aprovar(
     )
 
 # ---------- ABRIR SALA (CRIANDO SALA INDIVIDUAL) ----------
-@bot.tree.command(name="sala_privada_abrir", description="Abre sua sala privada por 10 minutos.")
+@bot.tree.command(
+    name="sala_privada_abrir",
+    description="Abre sua sala privada por 10 minutos."
+)
 async def sala_privada_abrir(interaction: discord.Interaction):
     uid = str(interaction.user.id)
     guild = interaction.guild
@@ -1389,14 +1392,19 @@ async def sala_privada_abrir(interaction: discord.Interaction):
 
     p = players.get(uid)
     if not p or p["status"] != "aprovado" or p["rodadas"] <= 0:
-        await interaction.response.send_message("⛔ Você não pode abrir uma sala agora.", ephemeral=True)
+        await interaction.response.send_message(
+            "⛔ Você não pode abrir uma sala agora.",
+            ephemeral=True
+        )
         return
 
     # Fecha sala antiga (se existir)
     if uid in salas:
         await fechar_sala_automaticamente(uid, guild)
 
-    categoria = guild.get_channel(config["categoria_salas"][str(guild.id)])
+    categoria = guild.get_channel(
+        config["categoria_salas"][str(guild.id)]
+    )
 
     # === CRIA CARGO ===
     cargo = await guild.create_role(
@@ -1404,15 +1412,34 @@ async def sala_privada_abrir(interaction: discord.Interaction):
         reason="Sala privada"
     )
 
+    # === OVERWRITES (COM MUDAE) ===
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(
+            view_channel=False
+        ),
+        cargo: discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True
+        ),
+        guild.me: discord.PermissionOverwrite(
+            view_channel=True
+        )
+    }
+
+    mudae = guild.get_member(432610292342587392)
+    if mudae:
+        overwrites[mudae] = discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            read_message_history=True
+        )
+
     # === CRIA CANAL ===
     canal = await guild.create_text_channel(
         name=f"🔐-privada-{interaction.user.display_name}".lower()[:90],
         category=categoria,
-        overwrites={
-            guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            cargo: discord.PermissionOverwrite(view_channel=True, send_messages=True),
-            guild.me: discord.PermissionOverwrite(view_channel=True)
-        }
+        overwrites=overwrites
     )
 
     await interaction.user.add_roles(cargo)
@@ -1439,9 +1466,21 @@ async def sala_privada_abrir(interaction: discord.Interaction):
         title="🔓 Sala Privada Aberta",
         color=discord.Color.green()
     )
-    embed_dm.add_field(name="Canal", value=canal.mention, inline=False)
-    embed_dm.add_field(name="⏳ Duração", value="10 minutos", inline=True)
-    embed_dm.add_field(name="⏰ Expira em", value=expira_em.strftime("%H:%M:%S"), inline=True)
+    embed_dm.add_field(
+        name="Canal",
+        value=canal.mention,
+        inline=False
+    )
+    embed_dm.add_field(
+        name="⏳ Duração",
+        value="10 minutos",
+        inline=True
+    )
+    embed_dm.add_field(
+        name="⏰ Expira em",
+        value=expira_em.strftime("%H:%M:%S"),
+        inline=True
+    )
 
     await enviar_dm(interaction.user, embed_dm)
 
@@ -1449,6 +1488,44 @@ async def sala_privada_abrir(interaction: discord.Interaction):
         f"🔓 Sala aberta! Expira às `{expira_em.strftime('%H:%M:%S')}`",
         ephemeral=True
     )
+#------- ADD RODADAS ---------
+@bot.tree.command(
+    name="sala_add_rodadas",
+    description="Adiciona rodadas de sala privada a um jogador (admin)."
+)
+@discord.app_commands.checks.has_permissions(administrator=True)
+async def sala_add_rodadas(
+    interaction: discord.Interaction,
+    usuario: discord.Member,
+    quantidade: int
+):
+    if quantidade <= 0:
+        await interaction.response.send_message(
+            "⛔ A quantidade deve ser maior que zero.",
+            ephemeral=True
+        )
+        return
+
+    players = s2_load(ARQ_S2_PLAYERS)
+    uid = str(usuario.id)
+
+    # Cria o player se não existir
+    if uid not in players:
+        players[uid] = {
+            "status": "aprovado",
+            "rodadas": 0,
+            "sala_ativa": False
+        }
+
+    players[uid]["rodadas"] += quantidade
+    s2_save(ARQ_S2_PLAYERS, players)
+
+    await interaction.response.send_message(
+        f"✅ {quantidade} rodada(s) adicionada(s) para {usuario.mention}.\n"
+        f"🎮 Total atual: **{players[uid]['rodadas']}**",
+        ephemeral=True
+    )
+
 
 # ---------- FECHAR SALA MANUALMENTE ----------
 @bot.tree.command(name="sala_privada_fechar", description="Fecha sua sala privada manualmente.")
