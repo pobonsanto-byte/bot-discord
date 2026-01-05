@@ -72,7 +72,8 @@ class PainelSalaView(discord.ui.View):
     # 🔓 ABRIR SALA
     @discord.ui.button(
         label="🔓 Abrir Sala",
-        style=discord.ButtonStyle.success
+        style=discord.ButtonStyle.success,
+        custom_id="painel_sala:abrir"
     )
     async def abrir(self, interaction: discord.Interaction, button: discord.ui.Button):
         await sala_privada_abrir.callback(interaction)
@@ -80,7 +81,8 @@ class PainelSalaView(discord.ui.View):
     # ♻️ REABRIR SALA
     @discord.ui.button(
         label="♻️ Reabrir Sala",
-        style=discord.ButtonStyle.primary
+        style=discord.ButtonStyle.primary,
+        custom_id="painel_sala:reabrir"
     )
     async def reabrir(self, interaction: discord.Interaction, button: discord.ui.Button):
         uid = str(interaction.user.id)
@@ -115,7 +117,6 @@ class PainelSalaView(discord.ui.View):
             )
             return
 
-        # === REATIVA A SALA ===
         await interaction.user.add_roles(cargo)
 
         agora = agora_brasil()
@@ -131,14 +132,12 @@ class PainelSalaView(discord.ui.View):
         s2_save_salas(salas)
         s2_save(ARQ_S2_PLAYERS, players)
 
-        # === DM ===
         embed_dm = discord.Embed(
             title="♻️ Sala Reaberta",
             description="Sua sala privada foi reaberta por mais 10 minutos.",
             color=discord.Color.blue()
         )
         embed_dm.add_field(name="Canal", value=canal.mention, inline=False)
-
         await enviar_dm(interaction.user, embed_dm)
 
         await interaction.response.send_message(
@@ -149,7 +148,8 @@ class PainelSalaView(discord.ui.View):
     # 🔒 FECHAR SALA
     @discord.ui.button(
         label="🔒 Fechar Sala",
-        style=discord.ButtonStyle.danger
+        style=discord.ButtonStyle.danger,
+        custom_id="painel_sala:fechar"
     )
     async def fechar(self, interaction: discord.Interaction, button: discord.ui.Button):
         uid = str(interaction.user.id)
@@ -175,7 +175,8 @@ class PainelSalaView(discord.ui.View):
     # 📊 INFO
     @discord.ui.button(
         label="📊 Info",
-        style=discord.ButtonStyle.secondary
+        style=discord.ButtonStyle.secondary,
+        custom_id="painel_sala:info"
     )
     async def info(self, interaction: discord.Interaction, button: discord.ui.Button):
         uid = str(interaction.user.id)
@@ -202,6 +203,7 @@ class PainelSalaView(discord.ui.View):
             f"⏳ Tempo restante: `{minutos}m {segundos}s`",
             ephemeral=True
         )
+
 
 
 
