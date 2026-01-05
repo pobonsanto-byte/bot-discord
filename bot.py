@@ -64,6 +64,16 @@ def normalizar_texto(txt: str) -> str:
         if unicodedata.category(c) != 'Mn'
     ).lower().strip()
 
+def usuario_tem_imunidade(user_id, guild_id):
+    """Verifica se um usuário possui personagem imune."""
+    imunes = carregar_json(ARQUIVO_IMUNES)
+    guild_id_str = str(guild_id)
+    user_id_str = str(user_id)
+    
+    if guild_id_str in imunes and user_id_str in imunes[guild_id_str]:
+        return True
+    return False
+
 # == PAINEL SEASON 2 ==
 class PainelSalaView(discord.ui.View):
     def __init__(self):
@@ -76,6 +86,15 @@ class PainelSalaView(discord.ui.View):
         custom_id="painel_sala:abrir"
     )
     async def abrir(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Verifica se usuário tem imunidade
+        if usuario_tem_imunidade(interaction.user.id, interaction.guild.id):
+            await interaction.response.send_message(
+                "⛔ Você não pode abrir uma sala porque possui um personagem imune. "
+                "Remova a imunidade primeiro usando `/imune_remover` (ou aguarde ser removido) para poder abrir salas.",
+                ephemeral=True
+            )
+            return
+        
         await sala_privada_abrir.callback(interaction)
 
     # ♻️ REABRIR SALA
@@ -85,6 +104,15 @@ class PainelSalaView(discord.ui.View):
         custom_id="painel_sala:reabrir"
     )
     async def reabrir(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Verifica se usuário tem imunidade
+        if usuario_tem_imunidade(interaction.user.id, interaction.guild.id):
+            await interaction.response.send_message(
+                "⛔ Você não pode reabrir uma sala porque possui um personagem imune. "
+                "Remova a imunidade primeiro usando `/imune_remover` (ou aguarde ser removido) para poder usar salas.",
+                ephemeral=True
+            )
+            return
+        
         uid = str(interaction.user.id)
         guild = interaction.guild
 
@@ -1469,6 +1497,15 @@ async def obter_ultima_embed_mudae(channel: discord.TextChannel):
 # ---------- APPLY ----------
 @bot.tree.command(name="sala_privada_aplicar", description="Aplique para ter acesso a sala privada.")
 async def sala_privada_apply(interaction: discord.Interaction):
+    # Verifica se usuário tem imunidade
+    if usuario_tem_imunidade(interaction.user.id, interaction.guild.id):
+        await interaction.response.send_message(
+            "⛔ Você não pode aplicar para Sala Privada porque possui um personagem imune. "
+            "Remova a imunidade primeiro usando `/imune_remover` (ou aguarde ser removido) para poder aplicar.",
+            ephemeral=True
+        )
+        return
+    
     players = s2_load(ARQ_S2_PLAYERS)
     uid = str(interaction.user.id)
 
@@ -1554,6 +1591,15 @@ async def sala_privada_aprovar(
     description="Abre sua sala privada por 10 minutos."
 )
 async def sala_privada_abrir(interaction: discord.Interaction):
+    # Verifica se usuário tem imunidade
+    if usuario_tem_imunidade(interaction.user.id, interaction.guild.id):
+        await interaction.response.send_message(
+            "⛔ Você não pode abrir uma sala porque possui um personagem imune. "
+            "Remova a imunidade primeiro usando `/imune_remover` (ou aguarde ser removido) para poder abrir salas.",
+            ephemeral=True
+        )
+        return
+    
     uid = str(interaction.user.id)
     guild = interaction.guild
     agora = agora_brasil()
@@ -1813,6 +1859,14 @@ async def sala_status(interaction: discord.Interaction):
     # Último reset
     ultimo_reset = p["ultimo_reset"] if p["ultimo_reset"] else "Nunca"
     embed.add_field(name="Último reset", value=ultimo_reset, inline=True)
+    
+    # Verifica se usuário tem imunidade
+    if usuario_tem_imunidade(interaction.user.id, interaction.guild.id):
+        embed.add_field(
+            name="⚠️ Restrição",
+            value="Você possui um personagem imune e não pode usar salas privadas até removê-lo.",
+            inline=False
+        )
     
     # Informações adicionais
     if p["status"] == "pendente":
