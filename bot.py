@@ -1274,7 +1274,37 @@ async def obter_ultima_embed_mudae(channel: discord.TextChannel):
 # =============================
 # COMANDOS SEASON 2
 # =============================
-
+@bot.tree.command(name="testar_channelinstance", description="Testa o comando $channelinstance 2 no canal atual")
+@app_commands.checks.has_permissions(administrator=True)
+async def testar_channelinstance(interaction: discord.Interaction):
+    """Comando para testar se o bot consegue enviar $channelinstance 2"""
+    
+    try:
+        # Envia o comando
+        await interaction.channel.send("$channelinstance 2")
+        
+        # Responde ao usuário
+        embed = discord.Embed(
+            title="✅ Comando Enviado",
+            description=f"Comando `$channelinstance 2` enviado no canal {interaction.channel.mention}",
+            color=discord.Color.green()
+        )
+        embed.add_field(name="Canal", value=interaction.channel.name, inline=True)
+        embed.add_field(name="ID", value=interaction.channel.id, inline=True)
+        embed.set_footer(text="Verifique se a Mudae respondeu ao comando")
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        print(f"✅ Comando $channelinstance 2 enviado por {interaction.user} no canal {interaction.channel.name}")
+        
+    except Exception as e:
+        embed = discord.Embed(
+            title="❌ Erro",
+            description=f"Erro ao enviar comando: {e}",
+            color=discord.Color.red()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        print(f"❌ Erro ao enviar $channelinstance 2: {e}")
+        
 # ---------- APPLY ----------
 @bot.tree.command(name="sala_privada_aplicar", description="Aplique para ter acesso a sala privada.")
 async def sala_privada_apply(interaction: discord.Interaction):
