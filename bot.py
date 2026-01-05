@@ -1814,12 +1814,15 @@ async def verificar_salas_expiradas():
     agora = agora_brasil()
     alterado = False
 
-    for uid, sala in list(salas.items()):
+    for uid, sala in salas.items():
+        # ⚠️ IGNORA SALAS JÁ FECHADAS
+        if not sala.get("ativa", False):
+            continue
+
         expira = datetime.strptime(
             sala["expira_em"], "%Y-%m-%d %H:%M:%S"
         )
 
-        # ⛔ Ainda não expirou
         if expira > agora:
             continue
 
@@ -1827,13 +1830,11 @@ async def verificar_salas_expiradas():
         if not guild:
             continue
 
-        # Fecha a sala UMA VEZ
+        # Fecha UMA ÚNICA VEZ
         await fechar_sala_automaticamente(uid, guild)
 
-        # ⚠️ GARANTE QUE NÃO VAI REPETIR
-        if uid in salas:
-            del salas[uid]
-            alterado = True
+        sala["ativa"] = False
+        alterado = True
 
         if uid in players:
             players[uid]["sala_ativa"] = False
