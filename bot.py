@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 import unicodedata
 import math
 from wsgiref.simple_server import make_server
-from season2 import setup_season2
+
 
 # === CONFIGURAÇÃO ===
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -1622,3 +1622,7 @@ if __name__ == "__main__":
         bot.run(TOKEN)
 
     run_discord_bot()
+    
+import season2
+season2.setup_season2(bot, bot.tree)
+
