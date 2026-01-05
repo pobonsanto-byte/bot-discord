@@ -390,25 +390,29 @@ class ImuneBot(commands.Bot):
         intents.members = True
         super().__init__(command_prefix="$", intents=intents)
 
-    async def setup_hook():
-        bot.add_view(PainelSalaView())
-        # Sincroniza comandos slash
+    async def setup_hook(self):
+        # View persistente
+        self.add_view(PainelSalaView())
+
+        # Sincroniza slash commands
         await self.tree.sync()
-        
-        # Inicia as tasks
+
+        # Inicia tasks
         verificar_imunidades.start()
         verificar_youtube.start()
         verificar_cooldowns.start()
         verificar_inatividade.start()
+
         checar_atividade.before_loop(self.wait_until_ready)
         checar_atividade.start()
+
         s2_reset.start()
         verificar_salas_expiradas.start()
 
-        # ✅ Executa o loop uma vez manualmente na inicialização
+        # Executa uma vez ao iniciar
         await checar_atividade()
 
-        print("✅ Bot totalmente inicializado e checagem feita uma vez.")
+        print("✅ Bot totalmente inicializado.")
 
 bot = ImuneBot()
 
