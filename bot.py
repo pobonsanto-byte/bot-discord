@@ -31,6 +31,27 @@ ARQUIVO_ATIVIDADE_6DIAS = "atividade_6dias.json"
 ARQUIVO_SERIES = "series.json"
 ARQUIVO_ISENCAO = "isencao_inatividade.json"
 
+# =============================
+# ARQUIVOS SEASON 2
+# =============================
+ARQ_S2_CONFIG = "season2_config.json"
+ARQ_S2_PLAYERS = "season2_players.json"
+ARQ_S2_PERSONAGENS = "season2_personagens.json"
+ARQ_S2_VENDAS = "season2_vendas.json"
+ARQ_S2_SALAS = "season2_salas.json"
+
+# =============================
+# CONFIGURAÇÕES SEASON 2
+# =============================
+S2_CATEGORIA_SALAS = None
+S2_TEMPO_SALA = 60 * 60
+MUDAE_BOT_ID = 432610292342587392
+
+S2_ROLL_PREFIXES = ("$w", "$wa", "$wg", "$h", "$ha", "$hg")
+S2_ROLL_FREE = ("$vote", "$daily")
+
+S2_SALAS_CONSUMIDAS = set()
+
 # === CONFIG GITHUB ===
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 REPO = os.getenv("GITHUB_REPO")
@@ -137,6 +158,39 @@ def toggle_isencao(user_id, usuario_nome):
         salvar_isencao(isencao)
         return True  # Isenção concedida
 
+# =============================
+# FUNÇÕES SEASON 2
+# =============================
+
+def s2_load(arq):
+    return carregar_json(arq) or {}
+
+def s2_save(arq, dados):
+    salvar_json(arq, dados)
+
+def s2_get_sala_por_canal(channel_id):
+    salas = s2_load(ARQ_S2_SALAS)
+    for uid, info in salas.items():
+        if info["canal_id"] == channel_id:
+            return uid, info
+    return None, None
+
+def s2_extrair_personagem_do_embed(embed: discord.Embed):
+    return embed.title.strip() if embed.title else None
+
+def s2_definir_tipo_personagem(embed: discord.Embed):
+    desc = (embed.description or "").lower()
+    return "wish_outro" if "wish" in desc else "livre"
+
+def s2_registro_automatico(uid, personagem, tipo):
+    chars = s2_load(ARQ_S2_PERSONAGENS)
+    chars.setdefault(uid, []).append({
+        "personagem": personagem,
+        "tipo": tipo,
+        "origem": "sala_privada",
+        "data": agora_brasil().strftime("%Y-%m-%d %H:%M")
+    })
+    s2_save(ARQ_S2_PERSONAGENS, chars)
 
 @tasks.loop(hours=1)
 async def verificar_inatividade():
@@ -327,9 +381,6 @@ async def checar_atividade():
     except Exception as e:
         print(f"[ERRO] checar_atividade: {e}")
 
-
-
-
 # === COOLDOWN ===
 def esta_em_cooldown(user_id):
     cooldowns = carregar_json(ARQUIVO_COOLDOWN)
@@ -442,7 +493,6 @@ def verificar_novos_videos():
     salvar_youtube(antigos[-50:])  # Mantém histórico recente
     return novos
 
-
 # === BOT ===
 class ImuneBot(discord.Client):
     def __init__(self):
@@ -464,16 +514,14 @@ class ImuneBot(discord.Client):
         verificar_inatividade.start()
         checar_atividade.before_loop(self.wait_until_ready)
         checar_atividade.start()
+        s2_reset.start()
 
         # ✅ Executa o loop uma vez manualmente na inicialização
         await checar_atividade()
 
         print("✅ Bot totalmente inicializado e checagem feita uma vez.")
 
-
 bot = ImuneBot()
-
-
 
 # === CANAL DE IMUNIDADE ===
 def canal_imunidade():
@@ -642,7 +690,6 @@ async def zerar_series(interaction: discord.Interaction):
         await interaction.response.send_message(f"⚠️ Erro ao zerar o arquivo: `{e}`", ephemeral=True)
         print(f"[ERRO] ao zerar series.json: {e}")
 
-
 @bot.tree.command(name="add_serie", description="Adiciona uma nova série à lista de séries.")
 async def add_serie(interaction: discord.Interaction, nome_serie: str):
     ADMIN_ID = 289801244653125634  # ID autorizado extra
@@ -667,8 +714,6 @@ async def add_serie(interaction: discord.Interaction, nome_serie: str):
         f" Série **{nome_serie.title()}** adicionada com sucesso!", ephemeral=True
     )
 
-
-
 @bot.tree.command(name="set_log", description="Define o canal de log de atividade (apenas administradores).")
 @app_commands.checks.has_permissions(administrator=True)
 async def set_log(interaction: discord.Interaction):
@@ -678,7 +723,6 @@ async def set_log(interaction: discord.Interaction):
     logs[guild_id] = canal.id
     salvar_json(ARQUIVO_LOG_ATIVIDADE, logs)
     await interaction.response.send_message(f"✅ Canal de log definido para {canal.mention}.", ephemeral=True)
-
 
 @bot.tree.command(name="set_canal_imune", description="Define o canal onde os comandos de imunidade funcionarão.")
 @app_commands.checks.has_permissions(administrator=True)
@@ -1008,7 +1052,6 @@ async def aplicar_cooldown(interaction: discord.Interaction, usuario: discord.Me
             embed_publico.add_field(name="Expira em", value=expira_em.strftime("%d/%m/%Y %H:%M"), inline=True)
             await canal.send(embed=embed_publico)
 
-
 @bot.tree.command(name="testar_mudae", description="Testa a leitura da última embed enviada pela Mudae no canal.")
 async def testar_mudae_embed(interaction: discord.Interaction):
     await interaction.response.defer(thinking=True, ephemeral=False)
@@ -1159,11 +1202,164 @@ async def obter_ultima_embed_mudae(channel: discord.TextChannel):
             return autor, footer, descricao
     return None, None, None
 
+# =============================
+# COMANDOS SEASON 2
+# =============================
+
+# ---------- APPLY ----------
+@bot.tree.command(name="sala_privada_apply")
+async def sala_privada_apply(interaction: discord.Interaction):
+    players = s2_load(ARQ_S2_PLAYERS)
+    uid = str(interaction.user.id)
+
+    players[uid] = {
+        "status": "pendente",
+        "rodadas": 0,
+        "bonus_evento": 0,
+        "ultimo_reset": None,
+        "sala_ativa": False
+    }
+    s2_save(ARQ_S2_PLAYERS, players)
+    await interaction.response.send_message(
+        "📨 Aplicação enviada para a Sala Privada.", ephemeral=True
+    )
+
+# ---------- APROVAR ----------
+@bot.tree.command(name="sala_privada_aprovar")
+@app_commands.checks.has_permissions(administrator=True)
+async def sala_privada_aprovar(
+    interaction: discord.Interaction,
+    usuario: discord.Member
+):
+    players = s2_load(ARQ_S2_PLAYERS)
+    uid = str(usuario.id)
+
+    if uid not in players:
+        await interaction.response.send_message("❌ Usuário não aplicou.", ephemeral=True)
+        return
+
+    players[uid].update({
+        "status": "aprovado",
+        "rodadas": 3,
+        "ultimo_reset": agora_brasil().strftime("%Y-%m-%d"),
+        "sala_ativa": False
+    })
+    s2_save(ARQ_S2_PLAYERS, players)
+    await interaction.response.send_message(
+        f"✅ {usuario.mention} aprovado na Sala Privada."
+    )
+
+# ---------- ABRIR SALA ----------
+@bot.tree.command(name="sala_privada_abrir")
+async def sala_privada_abrir(interaction: discord.Interaction):
+    uid = str(interaction.user.id)
+    players = s2_load(ARQ_S2_PLAYERS)
+    salas = s2_load(ARQ_S2_SALAS)
+
+    p = players.get(uid)
+    if not p or p["status"] != "aprovado" or p["rodadas"] <= 0 or p["sala_ativa"]:
+        await interaction.response.send_message(
+            "⛔ Você não pode abrir uma sala agora.", ephemeral=True
+        )
+        return
+
+    overwrites = {
+        interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        interaction.user: discord.PermissionOverwrite(view_channel=True),
+        interaction.guild.me: discord.PermissionOverwrite(view_channel=True)
+    }
+
+    canal = await interaction.guild.create_text_channel(
+        f"🔐-privada-{interaction.user.display_name}".lower(),
+        overwrites=overwrites
+    )
+
+    p["sala_ativa"] = True
+    salas[uid] = {
+        "canal_id": canal.id,
+        "aberta_em": agora_brasil().strftime("%Y-%m-%d %H:%M:%S")
+    }
+
+    s2_save(ARQ_S2_PLAYERS, players)
+    s2_save(ARQ_S2_SALAS, salas)
+
+    await interaction.response.send_message(
+        f"🔓 Sala criada: {canal.mention}", ephemeral=True
+    )
+
+# ---------- FECHAR SALA ----------
+@bot.tree.command(name="sala_privada_fechar")
+async def sala_privada_fechar(interaction: discord.Interaction):
+    uid = str(interaction.user.id)
+    salas = s2_load(ARQ_S2_SALAS)
+    players = s2_load(ARQ_S2_PLAYERS)
+
+    sala = salas.get(uid)
+    if not sala:
+        await interaction.response.send_message("❌ Nenhuma sala ativa.", ephemeral=True)
+        return
+
+    canal = interaction.guild.get_channel(sala["canal_id"])
+
+    players[uid]["rodadas"] -= 1
+    players[uid]["sala_ativa"] = False
+
+    S2_SALAS_CONSUMIDAS.discard(canal.id)
+
+    del salas[uid]
+
+    s2_save(ARQ_S2_PLAYERS, players)
+    s2_save(ARQ_S2_SALAS, salas)
+
+    await interaction.response.send_message("✅ Sala fechada.", ephemeral=True)
+    if canal:
+        await canal.delete()
+
+# ---------- RESET DIÁRIO ----------
+@tasks.loop(minutes=1)
+async def s2_reset():
+    agora = agora_brasil().strftime("%H:%M")
+    if agora != "23:45":
+        return
+
+    players = s2_load(ARQ_S2_PLAYERS)
+    hoje = agora_brasil().strftime("%Y-%m-%d")
+
+    for p in players.values():
+        if p["status"] == "aprovado" and p["ultimo_reset"] != hoje:
+            p["rodadas"] = 3
+            p["ultimo_reset"] = hoje
+            p["sala_ativa"] = False
+
+    s2_save(ARQ_S2_PLAYERS, players)
 
 # === EVENTOS === 
 @bot.event
 async def on_message(message: discord.Message):
     if message.author.bot and message.author.name.lower() != "mudae":
+        # Verifica se é mensagem da sala privada
+        uid_sala, _ = s2_get_sala_por_canal(message.channel.id)
+        
+        # Roll dentro da sala
+        if uid_sala:
+            if str(message.author.id) != uid_sala:
+                await message.delete()
+                return
+
+            if message.content.lower().startswith(S2_ROLL_PREFIXES):
+                if message.channel.id not in S2_SALAS_CONSUMIDAS:
+                    S2_SALAS_CONSUMIDAS.add(message.channel.id)
+                return
+
+        # Registro automático da Mudae em salas privadas
+        if message.author.id == MUDAE_BOT_ID and message.embeds:
+            uid_sala, _ = s2_get_sala_por_canal(message.channel.id)
+            if uid_sala:
+                personagem = s2_extrair_personagem_do_embed(message.embeds[0])
+                if personagem:
+                    tipo = s2_definir_tipo_personagem(message.embeds[0])
+                    s2_registro_automatico(uid_sala, personagem, tipo)
+        
         return
 
     if message.content.lower().startswith("$imao "):
@@ -1351,7 +1547,7 @@ async def on_message(message: discord.Message):
                 break
     
     # Permite que outros comandos Slash e prefixados funcionem
-    return
+    await bot.process_commands(message)
 
     # === EVENTO DE CASAMENTO DA MUDAE VIA EMBED ===
 @bot.event
@@ -1425,9 +1621,6 @@ async def on_message_edit(before, after):
             del imunes[guild_id][user_id]
             salvar_json(ARQUIVO_IMUNES, imunes)
             definir_cooldown(user_id, dias=3)
-
-
-
 
 # === LOOP DE VERIFICAÇÃO ===
 @tasks.loop(hours=1)
@@ -1550,7 +1743,6 @@ async def verificar_cooldowns():
         print(f"🧹 Cooldowns limpos: {len(cooldowns)} → {len(cooldowns_limpos)}")
     print(f"[LOOP] Verificação de cooldowns concluída: {len(expirados)} expirados | {datetime.now()}")
 
-
 # === LOOP YOUTUBE ===
 @tasks.loop(minutes=5)
 async def verificar_youtube():
@@ -1582,13 +1774,10 @@ async def verificar_youtube():
 
                     await canal.send(mensagem)
 
-
-
 # === ON READY ===
 @bot.event
 async def on_ready():
     print(f"✅ Logado como {bot.user}")
-
 
 def web_server():
     """Servidor web simples para manter a instância ativa"""
@@ -1617,5 +1806,3 @@ if __name__ == "__main__":
         
         # Executa o bot (bloqueante)
         bot.run(TOKEN)
-
-    run_discord_bot()
