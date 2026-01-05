@@ -89,8 +89,7 @@ class PainelSalaView(discord.ui.View):
         # Verifica se usuário tem imunidade
         if usuario_tem_imunidade(interaction.user.id, interaction.guild.id):
             await interaction.response.send_message(
-                "⛔ Você não pode abrir uma sala porque possui um personagem imune. "
-                "Remova a imunidade primeiro usando `/imune_remover` (ou aguarde ser removido) para poder abrir salas.",
+                "⛔ Você não pode abrir uma sala porque possui um personagem imune. ",
                 ephemeral=True
             )
             return
@@ -107,8 +106,7 @@ class PainelSalaView(discord.ui.View):
         # Verifica se usuário tem imunidade
         if usuario_tem_imunidade(interaction.user.id, interaction.guild.id):
             await interaction.response.send_message(
-                "⛔ Você não pode reabrir uma sala porque possui um personagem imune. "
-                "Remova a imunidade primeiro usando `/imune_remover` (ou aguarde ser removido) para poder usar salas.",
+                "⛔ Você não pode reabrir uma sala porque possui um personagem imune. ",
                 ephemeral=True
             )
             return
@@ -1594,8 +1592,7 @@ async def sala_privada_abrir(interaction: discord.Interaction):
     # Verifica se usuário tem imunidade
     if usuario_tem_imunidade(interaction.user.id, interaction.guild.id):
         await interaction.response.send_message(
-            "⛔ Você não pode abrir uma sala porque possui um personagem imune. "
-            "Remova a imunidade primeiro usando `/imune_remover` (ou aguarde ser removido) para poder abrir salas.",
+            "⛔ Você não pode abrir uma sala porque possui um personagem imune. ",
             ephemeral=True
         )
         return
@@ -1809,15 +1806,42 @@ async def s2_reset():
 # ---------- VERIFICAR SALAS EXPIRADAS ----------
 @tasks.loop(minutes=1)
 async def verificar_salas_expiradas():
-    agora = agora_brasil()
-    salas = s2_load_salas()
+    await bot.wait_until_ready()
 
-    for uid, info in list(salas.items()):
-        expira = datetime.strptime(info["expira_em"], "%Y-%m-%d %H:%M:%S")
-        if agora >= expira:
-            guild = bot.get_guild(int(info["guild_id"]))
-            if guild:
-                await fechar_sala_automaticamente(uid, guild)
+    salas = s2_load_salas()
+    players = s2_load(ARQ_S2_PLAYERS)
+
+    agora = agora_brasil()
+    alterado = False
+
+    for uid, sala in list(salas.items()):
+        expira = datetime.strptime(
+            sala["expira_em"], "%Y-%m-%d %H:%M:%S"
+        )
+
+        # ⛔ Ainda não expirou
+        if expira > agora:
+            continue
+
+        guild = bot.get_guild(int(sala["guild_id"]))
+        if not guild:
+            continue
+
+        # Fecha a sala UMA VEZ
+        await fechar_sala_automaticamente(uid, guild)
+
+        # ⚠️ GARANTE QUE NÃO VAI REPETIR
+        if uid in salas:
+            del salas[uid]
+            alterado = True
+
+        if uid in players:
+            players[uid]["sala_ativa"] = False
+
+    if alterado:
+        s2_save_salas(salas)
+        s2_save(ARQ_S2_PLAYERS, players)
+
 
 
 # ---------- STATUS SALA ----------
