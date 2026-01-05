@@ -204,9 +204,6 @@ class PainelSalaView(discord.ui.View):
             ephemeral=True
         )
 
-
-
-
 # === FUNÇÃO de DM ===
 async def enviar_dm(usuario: discord.Member, embed: discord.Embed):
     try:
