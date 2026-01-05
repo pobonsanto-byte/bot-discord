@@ -1396,6 +1396,21 @@ async def sala_privada_abrir(interaction: discord.Interaction):
         category=S2_CATEGORIA_SALAS  # Opcional: colocar em uma categoria específica
     )
 
+    # 🔥 NOVO: Executa o comando $channelinstance 2 da Mudae
+    try:
+        # Aguarda um momento para garantir que o canal foi criado
+        await asyncio.sleep(1)
+        
+        # Envia o comando para a Mudae configurar o canal
+        if mudae_member:
+            await canal.send("$channelinstance 2")
+            print(f"✅ Comando $channelinstance 2 enviado para a Mudae no canal {canal.name}")
+            
+            # Aguarda um pouco para a Mudae processar
+            await asyncio.sleep(2)
+    except Exception as e:
+        print(f"⚠️ Erro ao enviar comando $channelinstance 2: {e}")
+
     p["sala_ativa"] = True
     salas[uid] = {
         "canal_id": canal.id,
@@ -1430,8 +1445,8 @@ async def sala_privada_abrir(interaction: discord.Interaction):
         description=f"Esta sala é privada e apenas você pode acessar.",
         color=discord.Color.blurple()
     )
-    embed_sala.add_field(name="📝 Regras", value="• A sala será fechada automaticamente após 10 minutos\n• Cada uso consome 1 rodada\n• Você pode usar comandos da Mudae normalmente", inline=False)
-    embed_sala.add_field(name="⏰ Temro restante", value=f"`{S2_TEMPO_SALA//60} minutos`", inline=True)
+    embed_sala.add_field(name="📝 Regras", value="• A sala será fechada automaticamente após 10 minutos\n• Cada uso consome 1 rodada\n• Você pode usar comandos da Mudae normalmente\n• O canal já está configurado como instância 2 da Mudae", inline=False)
+    embed_sala.add_field(name="⏰ Tempo restante", value=f"`{S2_TEMPO_SALA//60} minutos`", inline=True)
     embed_sala.add_field(name="🎮 Rodadas restantes hoje", value=f"`{p['rodadas']-1}/3`", inline=True)
     embed_sala.set_footer(text="Aproveite sua rolagem privada!")
     
