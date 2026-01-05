@@ -17,6 +17,7 @@ import xml.etree.ElementTree as ET
 import unicodedata
 import math
 from wsgiref.simple_server import make_server
+from season2 import setup_season2
 
 # === CONFIGURAÇÃO ===
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
@@ -456,6 +457,7 @@ class ImuneBot(discord.Client):
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
+        setup_season2(self, self.tree)
         await self.tree.sync()
 
         verificar_imunidades.start()
@@ -464,6 +466,7 @@ class ImuneBot(discord.Client):
         verificar_inatividade.start()
         checar_atividade.before_loop(self.wait_until_ready)
         checar_atividade.start()
+        
 
         # ✅ Executa o loop uma vez manualmente na inicialização
         await checar_atividade()
