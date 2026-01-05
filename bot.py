@@ -1276,7 +1276,7 @@ async def obter_ultima_embed_mudae(channel: discord.TextChannel):
 # =============================
 
 # ---------- APPLY ----------
-@bot.tree.command(name="sala_privada_apply", description="Aplicação para ter acesso a sala privada.")
+@bot.tree.command(name="sala_privada_aplicar", description="Aplique para ter acesso a sala privada.")
 async def sala_privada_apply(interaction: discord.Interaction):
     players = s2_load(ARQ_S2_PLAYERS)
     uid = str(interaction.user.id)
@@ -1472,7 +1472,7 @@ async def sala_status(interaction: discord.Interaction):
             description="Você não tem uma aplicação para Sala Privada.",
             color=discord.Color.red()
         )
-        embed.add_field(name="Ação necessária", value="Use `/sala_privada_apply` para aplicar.", inline=False)
+        embed.add_field(name="Ação necessária", value="Use `/sala_privada_aplicar` para aplicar.", inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
         return
     
