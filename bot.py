@@ -1371,15 +1371,29 @@ async def sala_privada_abrir(interaction: discord.Interaction):
         )
         return
 
+    # 🔥 ADICIONE O BOT DA MUDAE AQUI
+    mudae_member = interaction.guild.get_member(MUDAE_BOT_ID)
+    
     overwrites = {
         interaction.guild.default_role: discord.PermissionOverwrite(view_channel=False),
         interaction.user: discord.PermissionOverwrite(view_channel=True),
         interaction.guild.me: discord.PermissionOverwrite(view_channel=True)
     }
+    
+    # 🔥 ADICIONE PERMISSÃO PARA O BOT DA MUDAE
+    if mudae_member:
+        overwrites[mudae_member] = discord.PermissionOverwrite(
+            view_channel=True,
+            send_messages=True,
+            embed_links=True,
+            read_message_history=True,
+            add_reactions=True
+        )
 
     canal = await interaction.guild.create_text_channel(
         f"🔐-privada-{interaction.user.display_name}".lower(),
-        overwrites=overwrites
+        overwrites=overwrites,
+        category=S2_CATEGORIA_SALAS  # Opcional: colocar em uma categoria específica
     )
 
     p["sala_ativa"] = True
@@ -1405,6 +1419,7 @@ async def sala_privada_abrir(interaction: discord.Interaction):
     )
     embed.add_field(name="Tempo limite", value=f"{S2_TEMPO_SALA//60} minutos", inline=True)
     embed.add_field(name="Rodadas restantes", value=f"{p['rodadas']-1}/3", inline=True)
+    embed.add_field(name="Acesso", value=f"✅ Bot da Mudae tem acesso a esta sala", inline=False)
     embed.add_field(name="Aviso", value="A sala será fechada automaticamente após o tempo limite.", inline=False)
     
     await interaction.response.send_message(embed=embed, ephemeral=True)
@@ -1416,7 +1431,7 @@ async def sala_privada_abrir(interaction: discord.Interaction):
         color=discord.Color.blurple()
     )
     embed_sala.add_field(name="📝 Regras", value="• A sala será fechada automaticamente após 10 minutos\n• Cada uso consome 1 rodada\n• Você pode usar comandos da Mudae normalmente", inline=False)
-    embed_sala.add_field(name="⏰ Tempo restante", value=f"`{S2_TEMPO_SALA//60} minutos`", inline=True)
+    embed_sala.add_field(name="⏰ Temro restante", value=f"`{S2_TEMPO_SALA//60} minutos`", inline=True)
     embed_sala.add_field(name="🎮 Rodadas restantes hoje", value=f"`{p['rodadas']-1}/3`", inline=True)
     embed_sala.set_footer(text="Aproveite sua rolagem privada!")
     
@@ -1518,7 +1533,7 @@ async def on_message(message: discord.Message):
         
         # Roll dentro da sala
         if uid_sala:
-            if str(message.author.id) != uid_sala:
+            if str(message.author.id) != uid_sala and message.author.id != MUDAE_BOT_ID:
                 await message.delete()
                 return
 
