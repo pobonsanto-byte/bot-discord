@@ -1854,9 +1854,6 @@ async def on_message(message: discord.Message):
                 
                 print(f"[REMOVIDO] {dados['personagem']} removido das imunidades. Cooldown aplicado a {usuario_imune}.")
                 break
-    
-    # Permite que outros comandos Slash e prefixados funcionem
-    await bot.process_commands(message)
 
     # === EVENTO DE CASAMENTO DA MUDAE VIA EMBED ===
 @bot.event
