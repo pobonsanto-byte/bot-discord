@@ -64,6 +64,147 @@ def normalizar_texto(txt: str) -> str:
         if unicodedata.category(c) != 'Mn'
     ).lower().strip()
 
+# == PAINEL SEASON 2 ==
+class PainelSalaView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)  # view persistente
+
+    # 🔓 ABRIR SALA
+    @discord.ui.button(
+        label="🔓 Abrir Sala",
+        style=discord.ButtonStyle.success
+    )
+    async def abrir(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await sala_privada_abrir.callback(interaction)
+
+    # ♻️ REABRIR SALA
+    @discord.ui.button(
+        label="♻️ Reabrir Sala",
+        style=discord.ButtonStyle.primary
+    )
+    async def reabrir(self, interaction: discord.Interaction, button: discord.ui.Button):
+        uid = str(interaction.user.id)
+        guild = interaction.guild
+
+        players = s2_load(ARQ_S2_PLAYERS)
+        salas = s2_load_salas()
+
+        p = players.get(uid)
+        if not p or p["rodadas"] <= 0:
+            await interaction.response.send_message(
+                "⛔ Você não possui rodadas disponíveis.",
+                ephemeral=True
+            )
+            return
+
+        sala = salas.get(uid)
+        if not sala or sala.get("ativa", False):
+            await interaction.response.send_message(
+                "ℹ️ Você não possui uma sala para reabrir.",
+                ephemeral=True
+            )
+            return
+
+        cargo = guild.get_role(sala["cargo_id"])
+        canal = guild.get_channel(sala["canal_id"])
+
+        if not cargo or not canal:
+            await interaction.response.send_message(
+                "⛔ Sala não encontrada no servidor.",
+                ephemeral=True
+            )
+            return
+
+        # === REATIVA A SALA ===
+        await interaction.user.add_roles(cargo)
+
+        agora = agora_brasil()
+        expira_em = agora + timedelta(seconds=S2_TEMPO_SALA)
+
+        sala["aberta_em"] = agora.strftime("%Y-%m-%d %H:%M:%S")
+        sala["expira_em"] = expira_em.strftime("%Y-%m-%d %H:%M:%S")
+        sala["ativa"] = True
+
+        players[uid]["rodadas"] -= 1
+        players[uid]["sala_ativa"] = True
+
+        s2_save_salas(salas)
+        s2_save(ARQ_S2_PLAYERS, players)
+
+        # === DM ===
+        embed_dm = discord.Embed(
+            title="♻️ Sala Reaberta",
+            description="Sua sala privada foi reaberta por mais 10 minutos.",
+            color=discord.Color.blue()
+        )
+        embed_dm.add_field(name="Canal", value=canal.mention, inline=False)
+
+        await enviar_dm(interaction.user, embed_dm)
+
+        await interaction.response.send_message(
+            f"♻️ Sala reaberta! Novo tempo até `{expira_em.strftime('%H:%M:%S')}`",
+            ephemeral=True
+        )
+
+    # 🔒 FECHAR SALA
+    @discord.ui.button(
+        label="🔒 Fechar Sala",
+        style=discord.ButtonStyle.danger
+    )
+    async def fechar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        uid = str(interaction.user.id)
+        guild = interaction.guild
+
+        salas = s2_load_salas()
+        sala = salas.get(uid)
+
+        if not sala or not sala.get("ativa", False):
+            await interaction.response.send_message(
+                "⛔ Você não tem sala ativa.",
+                ephemeral=True
+            )
+            return
+
+        await fechar_sala_automaticamente(uid, guild)
+
+        await interaction.response.send_message(
+            "🔒 Sala fechada com sucesso.",
+            ephemeral=True
+        )
+
+    # 📊 INFO
+    @discord.ui.button(
+        label="📊 Info",
+        style=discord.ButtonStyle.secondary
+    )
+    async def info(self, interaction: discord.Interaction, button: discord.ui.Button):
+        uid = str(interaction.user.id)
+        salas = s2_load_salas()
+
+        sala = salas.get(uid)
+        if not sala or not sala.get("ativa", False):
+            await interaction.response.send_message(
+                "ℹ️ Você não tem sala ativa.",
+                ephemeral=True
+            )
+            return
+
+        expira = datetime.strptime(
+            sala["expira_em"], "%Y-%m-%d %H:%M:%S"
+        )
+
+        restante = expira - agora_brasil()
+        minutos = max(0, int(restante.total_seconds() // 60))
+        segundos = max(0, int(restante.total_seconds() % 60))
+
+        await interaction.response.send_message(
+            f"📊 **Status da Sala**\n"
+            f"⏳ Tempo restante: `{minutos}m {segundos}s`",
+            ephemeral=True
+        )
+
+
+
 # === FUNÇÃO de DM ===
 async def enviar_dm(usuario: discord.Member, embed: discord.Embed):
     try:
@@ -234,9 +375,9 @@ async def fechar_sala_automaticamente(uid: str, guild: discord.Guild):
         players[uid]["sala_ativa"] = False
         s2_save(ARQ_S2_PLAYERS, players)
 
-    # Remove do controle de salas ativas
-    del salas[uid]
+    salas[uid]["ativa"] = False
     s2_save_salas(salas)
+
 
 # === BOT ===
 # Mudando para usar commands.Bot em vez de discord.Client
@@ -250,6 +391,7 @@ class ImuneBot(commands.Bot):
         super().__init__(command_prefix="$", intents=intents)
 
     async def setup_hook(self):
+        bot.add_view(PainelSalaView())
         # Sincroniza comandos slash
         await self.tree.sync()
         
@@ -624,6 +766,35 @@ def verificar_novos_videos():
 
     salvar_youtube(antigos[-50:])  # Mantém histórico recente
     return novos
+
+@bot.tree.command(
+    name="painel_sala",
+    description="Cria o painel de botões da sala privada (admin)."
+)
+@discord.app_commands.checks.has_permissions(administrator=True)
+async def painel_sala(interaction: discord.Interaction):
+
+    embed = discord.Embed(
+        title="🔐 Painel da Sala Privada",
+        description=(
+            "Use os botões abaixo para gerenciar sua sala privada.\n\n"
+            "🔓 **Abrir Sala** → abre por 10 minutos\n"
+            "🔒 **Fechar Sala** → fecha antes do tempo\n"
+            "📊 **Info** → mostra status da sua sala"
+        ),
+        color=discord.Color.blurple()
+    )
+
+    await interaction.channel.send(
+        embed=embed,
+        view=PainelSalaView()
+    )
+
+    await interaction.response.send_message(
+        "✅ Painel criado com sucesso.",
+        ephemeral=True
+    )
+
 
 # === COMANDOS ADMIN ===
 @bot.tree.command(name="isencao_inatividade", description="Concede ou remove isenção de penalidade por inatividade de um usuário.")
