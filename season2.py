@@ -4,6 +4,10 @@ from discord.ext import tasks
 import asyncio
 import random
 from datetime import datetime
+import json
+import pytz
+from bot import carregar_json, salvar_json, agora_brasil
+
 
 # =============================
 # ARQUIVOS SEASON 2
@@ -29,17 +33,13 @@ S2_SALAS_CONSUMIDAS = set()
 # =============================
 # FUNÇÕES JSON (usa as suas)
 # =============================
+
 def s2_load(arq):
-    from utils import carregar_json
     return carregar_json(arq) or {}
 
 def s2_save(arq, dados):
-    from utils import salvar_json
     salvar_json(arq, dados)
 
-def agora_brasil():
-    from utils import agora_brasil
-    return agora_brasil()
 
 # =============================
 # FUNÇÕES AUXILIARES
