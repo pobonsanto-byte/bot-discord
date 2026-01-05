@@ -1207,7 +1207,7 @@ async def obter_ultima_embed_mudae(channel: discord.TextChannel):
 # =============================
 
 # ---------- APPLY ----------
-@bot.tree.command(name="sala_privada_apply")
+@bot.tree.command(name="sala_privada_apply", description="Aplicação para ter acesso a sala privada.")
 async def sala_privada_apply(interaction: discord.Interaction):
     players = s2_load(ARQ_S2_PLAYERS)
     uid = str(interaction.user.id)
@@ -1225,7 +1225,7 @@ async def sala_privada_apply(interaction: discord.Interaction):
     )
 
 # ---------- APROVAR ----------
-@bot.tree.command(name="sala_privada_aprovar")
+@bot.tree.command(name="sala_privada_aprovar", description="Aprova aplicação de um usuário.")
 @app_commands.checks.has_permissions(administrator=True)
 async def sala_privada_aprovar(
     interaction: discord.Interaction,
@@ -1250,7 +1250,7 @@ async def sala_privada_aprovar(
     )
 
 # ---------- ABRIR SALA ----------
-@bot.tree.command(name="sala_privada_abrir")
+@bot.tree.command(name="sala_privada_abrir", description="Abre sua sala privada.")
 async def sala_privada_abrir(interaction: discord.Interaction):
     uid = str(interaction.user.id)
     players = s2_load(ARQ_S2_PLAYERS)
@@ -1288,7 +1288,7 @@ async def sala_privada_abrir(interaction: discord.Interaction):
     )
 
 # ---------- FECHAR SALA ----------
-@bot.tree.command(name="sala_privada_fechar")
+@bot.tree.command(name="sala_privada_fechar", description="Fecha a sua sala privada.")
 async def sala_privada_fechar(interaction: discord.Interaction):
     uid = str(interaction.user.id)
     salas = s2_load(ARQ_S2_SALAS)
