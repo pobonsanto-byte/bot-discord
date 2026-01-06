@@ -1677,7 +1677,6 @@ async def sala_privada_aprovar(
         )
         embed.add_field(name="Rodadas diárias", value="3 rodadas por dia", inline=True)
         embed.add_field(name="Status", value="Aprovado", inline=True)
-        embed.add_field(name="Comando para abrir sala", value="`/sala_privada_abrir`", inline=False)
         await usuario.send(embed=embed)
     except:
         pass
