@@ -225,8 +225,7 @@ class PainelSalaView(discord.ui.View):
         # Verifica se usuário tem imunidade
         if usuario_tem_imunidade(interaction.user.id, interaction.guild.id):
             await interaction.response.send_message(
-                "⛔ Você não pode aplicar para Sala Privada porque possui um personagem imune. "
-                "Remova a imunidade primeiro usando `/imune_remover` (ou aguarde ser removido) para poder aplicar.",
+                "⛔ Você não pode aplicar para Sala Privada porque possui um personagem imune. ",
                 ephemeral=True
             )
             return
@@ -1601,8 +1600,7 @@ async def sala_privada_apply(interaction: discord.Interaction):
     # Verifica se usuário tem imunidade
     if usuario_tem_imunidade(interaction.user.id, interaction.guild.id):
         await interaction.response.send_message(
-            "⛔ Você não pode aplicar para Sala Privada porque possui um personagem imune. "
-            "Remova a imunidade primeiro usando `/imune_remover` (ou aguarde ser removido) para poder aplicar.",
+            "⛔ Você não pode aplicar para Sala Privada porque possui um personagem imune. ",
             ephemeral=True
         )
         return
