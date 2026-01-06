@@ -214,11 +214,75 @@ class PainelSalaView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)  # view persistente
 
+    # 📝 APLICAR PARA SALA
+    @discord.ui.button(
+        label="📝 Aplicar",
+        style=discord.ButtonStyle.secondary,
+        custom_id="painel_sala:aplicar",
+        row=0  # Primeira linha
+    )
+    async def aplicar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Verifica se usuário tem imunidade
+        if usuario_tem_imunidade(interaction.user.id, interaction.guild.id):
+            await interaction.response.send_message(
+                "⛔ Você não pode aplicar para Sala Privada porque possui um personagem imune. "
+                "Remova a imunidade primeiro usando `/imune_remover` (ou aguarde ser removido) para poder aplicar.",
+                ephemeral=True
+            )
+            return
+        
+        players = s2_load(ARQ_S2_PLAYERS)
+        uid = str(interaction.user.id)
+
+        # Verifica se já aplicou
+        if uid in players:
+            if players[uid]["status"] == "pendente":
+                await interaction.response.send_message(
+                    "⏳ Sua aplicação já está pendente de aprovação.", ephemeral=True
+                )
+            elif players[uid]["status"] == "aprovado":
+                await interaction.response.send_message(
+                    "✅ Você já foi aprovado para usar salas privadas.", ephemeral=True
+                )
+            return
+
+        # Cria aplicação
+        players[uid] = {
+            "status": "pendente",
+            "rodadas": 0,
+            "bonus_evento": 0,
+            "ultimo_reset": None,
+            "sala_ativa": False
+        }
+        s2_save(ARQ_S2_PLAYERS, players)
+        
+        # Envia notificação no canal configurado
+        config = s2_load(ARQ_S2_CONFIG)
+        guild_id = str(interaction.guild.id)
+        
+        if "apply_channel" in config and guild_id in config["apply_channel"]:
+            canal_id = config["apply_channel"][guild_id]
+            canal = interaction.guild.get_channel(canal_id)
+            if canal:
+                embed = discord.Embed(
+                    title="📨 Nova Aplicação para Sala Privada",
+                    description=f"**Usuário:** {interaction.user.mention}\n**ID:** {interaction.user.id}\n**Nome:** {interaction.user.display_name}",
+                    color=discord.Color.blue()
+                )
+                embed.set_footer(text=f"Use /sala_privada_aprovar para aprovar")
+                await canal.send(embed=embed)
+        
+        await interaction.response.send_message(
+            "📨 Aplicação enviada para a Sala Privada! Aguarde a aprovação dos administradores.", 
+            ephemeral=True
+        )
+
     # 🔓 ABRIR SALA
     @discord.ui.button(
         label="🔓 Abrir Sala",
         style=discord.ButtonStyle.success,
-        custom_id="painel_sala:abrir"
+        custom_id="painel_sala:abrir",
+        row=1  # Segunda linha
     )
     async def abrir(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Verifica se usuário tem imunidade
@@ -229,13 +293,32 @@ class PainelSalaView(discord.ui.View):
             )
             return
         
+        # Verifica se usuário está aprovado
+        players = s2_load(ARQ_S2_PLAYERS)
+        uid = str(interaction.user.id)
+        
+        if uid not in players:
+            await interaction.response.send_message(
+                "📝 Você precisa aplicar primeiro! Use o botão **'Aplicar'** acima.",
+                ephemeral=True
+            )
+            return
+            
+        if players[uid]["status"] != "aprovado":
+            await interaction.response.send_message(
+                "⏳ Sua aplicação ainda está pendente de aprovação.",
+                ephemeral=True
+            )
+            return
+        
         await sala_privada_abrir.callback(interaction)
 
     # ♻️ REABRIR SALA
     @discord.ui.button(
         label="♻️ Reabrir Sala",
         style=discord.ButtonStyle.primary,
-        custom_id="painel_sala:reabrir"
+        custom_id="painel_sala:reabrir",
+        row=1  # Segunda linha
     )
     async def reabrir(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Verifica se usuário tem imunidade
@@ -246,6 +329,18 @@ class PainelSalaView(discord.ui.View):
             )
             return
         
+        # Verifica se usuário está aprovado
+        players = s2_load(ARQ_S2_PLAYERS)
+        uid = str(interaction.user.id)
+        
+        if uid not in players or players[uid]["status"] != "aprovado":
+            await interaction.response.send_message(
+                "❌ Você precisa ser aprovado para usar salas privadas.",
+                ephemeral=True
+            )
+            return
+        
+        # Resto do código original...
         uid = str(interaction.user.id)
         guild = interaction.guild
 
@@ -310,7 +405,8 @@ class PainelSalaView(discord.ui.View):
     @discord.ui.button(
         label="🔒 Fechar Sala",
         style=discord.ButtonStyle.danger,
-        custom_id="painel_sala:fechar"
+        custom_id="painel_sala:fechar",
+        row=2  # Terceira linha
     )
     async def fechar(self, interaction: discord.Interaction, button: discord.ui.Button):
         uid = str(interaction.user.id)
@@ -337,7 +433,8 @@ class PainelSalaView(discord.ui.View):
     @discord.ui.button(
         label="📊 Info",
         style=discord.ButtonStyle.secondary,
-        custom_id="painel_sala:info"
+        custom_id="painel_sala:info",
+        row=2  # Terceira linha
     )
     async def info(self, interaction: discord.Interaction, button: discord.ui.Button):
         uid = str(interaction.user.id)
@@ -811,9 +908,11 @@ async def painel_sala(interaction: discord.Interaction):
         title="🔐 Painel da Sala Privada",
         description=(
             "Use os botões abaixo para gerenciar sua sala privada.\n\n"
-            "🔓 **Abrir Sala** → abre por 10 minutos\n"
+            "📝 **Aplicar** → solicita acesso à sala privada\n"
+            "🔓 **Abrir Sala** → abre por 10 minutos (apenas aprovados)\n"
             "🔒 **Fechar Sala** → fecha antes do tempo\n"
-            "📊 **Info** → mostra status da sua sala"
+            "📊 **Info** → mostra status da sua sala\n\n"
+            "⚠️ **Nota:** Usuários com personagens imunes não podem usar salas privadas"
         ),
         color=discord.Color.blurple()
     )
