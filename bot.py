@@ -74,6 +74,141 @@ def usuario_tem_imunidade(user_id, guild_id):
         return True
     return False
 
+# === FUNÇÃO de DM ===
+async def enviar_dm(usuario: discord.Member, embed: discord.Embed):
+    try:
+        await usuario.send(embed=embed)
+    except discord.Forbidden:
+        print(f"⚠️ DM bloqueada por {usuario.display_name}")
+    except Exception as e:
+        print(f"❌ Erro ao enviar DM para {usuario.display_name}: {e}")
+
+# === HORA LOCAL (BRASÍLIA, UTC-3) ===
+def agora_brasil():
+    return datetime.utcnow() - timedelta(hours=3)
+
+# === FUNÇÕES GITHUB ===
+def carregar_json(nome_arquivo):
+    url = f"https://api.github.com/repos/{REPO}/contents/{nome_arquivo}?ref={BRANCH}"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    r = requests.get(url, headers=headers)
+    if r.status_code == 200:
+        content = base64.b64decode(r.json()["content"]).decode("utf-8")
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError:
+            print(f"⚠️ Erro ao decodificar {nome_arquivo}")
+            return {}
+    else:
+        print(f"⚠️ Não foi possível carregar {nome_arquivo}: {r.status_code}")
+        return {}
+
+def salvar_json(nome_arquivo, dados):
+    url = f"https://api.github.com/repos/{REPO}/contents/{nome_arquivo}"
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    conteudo = json.dumps(dados, indent=4, ensure_ascii=False)
+    base64_content = base64.b64encode(conteudo.encode()).decode()
+    r = requests.get(url, headers=headers)
+    sha = r.json().get("sha") if r.status_code == 200 else None
+    data = {"message": f"Atualizando {nome_arquivo}", "content": base64_content, "branch": BRANCH}
+    if sha:
+        data["sha"] = sha
+    r = requests.put(url, headers=headers, json=data)
+    if r.status_code not in [200, 201]:
+        print(f"❌ Erro ao salvar {nome_arquivo}: {r.status_code} - {r.text}")
+
+# 🆕 NOVO BLOCO – funções e loop de verificação de inatividade
+def carregar_atividade():
+    """Carrega o arquivo de atividade do GitHub."""
+    dados = carregar_json(ARQUIVO_ATIVIDADE)
+    return dados if dados else {}
+
+def salvar_atividade(dados):
+    """Salva o arquivo de atividade no GitHub."""
+    salvar_json(ARQUIVO_ATIVIDADE, dados)
+
+def carregar_atividade_6dias():
+    return carregar_json(ARQUIVO_ATIVIDADE_6DIAS)
+
+def salvar_atividade_6dias(dados):
+    salvar_json(ARQUIVO_ATIVIDADE_6DIAS, dados)
+
+# === FUNÇÕES AUXILIARES DE SÉRIES ===
+def carregar_series():
+    """Carrega o arquivo de séries do GitHub."""
+    dados = carregar_json(ARQUIVO_SERIES)
+    return dados if dados else {}
+
+def salvar_series(series):
+    """Salva o arquivo de séries no GitHub."""
+    salvar_json(ARQUIVO_SERIES, series)
+
+def carregar_isencao():
+    """Carrega o arquivo de isenção de inatividade."""
+    dados = carregar_json(ARQUIVO_ISENCAO)
+    return dados if dados else {}
+
+def salvar_isencao(dados):
+    """Salva o arquivo de isenção no GitHub."""
+    salvar_json(ARQUIVO_ISENCAO, dados)
+
+def usuario_tem_isencao(user_id):
+    """Verifica se um usuário tem isenção de inatividade."""
+    isencao = carregar_isencao()
+    return str(user_id) in isencao
+
+def toggle_isencao(user_id, usuario_nome):
+    """Adiciona ou remove isenção de inatividade de um usuário."""
+    isencao = carregar_isencao()
+    user_id_str = str(user_id)
+    
+    if user_id_str in isencao:
+        # Remove isenção
+        del isencao[user_id_str]
+        salvar_isencao(isencao)
+        return False  # Isenção removida
+    else:
+        # Adiciona isenção
+        isencao[user_id_str] = {
+            "usuario": usuario_nome,
+            "data_concessao": agora_brasil().strftime("%Y-%m-%d %H:%M:%S"),
+            "concedido_por": "Sistema"  # Será atualizado no comando
+        }
+        salvar_isencao(isencao)
+        return True  # Isenção concedida
+
+# =============================
+# FUNÇÕES SEASON 2
+# =============================
+def s2_load_salas():
+    return carregar_json(ARQ_S2_SALAS) or {}
+
+def s2_save_salas(dados):
+    salvar_json(ARQ_S2_SALAS, dados)
+
+def s2_load(arq):
+    return carregar_json(arq) or {}
+
+def s2_save(arq, dados):
+    salvar_json(arq, dados)
+
+def s2_extrair_personagem_do_embed(embed: discord.Embed):
+    return embed.title.strip() if embed.title else None
+
+def s2_definir_tipo_personagem(embed: discord.Embed):
+    desc = (embed.description or "").lower()
+    return "wish_outro" if "wish" in desc else "livre"
+
+def s2_registro_automatico(uid, personagem, tipo):
+    chars = s2_load(ARQ_S2_PERSONAGENS)
+    chars.setdefault(uid, []).append({
+        "personagem": personagem,
+        "tipo": tipo,
+        "origem": "sala_privada",
+        "data": agora_brasil().strftime("%Y-%m-%d %H:%M")
+    })
+    s2_save(ARQ_S2_PERSONAGENS, chars)
+
 # == PAINEL SEASON 2 ==
 class PainelSalaView(discord.ui.View):
     def __init__(self):
@@ -230,148 +365,13 @@ class PainelSalaView(discord.ui.View):
             ephemeral=True
         )
 
-# === FUNÇÃO de DM ===
-async def enviar_dm(usuario: discord.Member, embed: discord.Embed):
-    try:
-        await usuario.send(embed=embed)
-    except discord.Forbidden:
-        print(f"⚠️ DM bloqueada por {usuario.display_name}")
-    except Exception as e:
-        print(f"❌ Erro ao enviar DM para {usuario.display_name}: {e}")
-
-# === HORA LOCAL (BRASÍLIA, UTC-3) ===
-def agora_brasil():
-    return datetime.utcnow() - timedelta(hours=3)
-
-# === FUNÇÕES GITHUB ===
-def carregar_json(nome_arquivo):
-    url = f"https://api.github.com/repos/{REPO}/contents/{nome_arquivo}?ref={BRANCH}"
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-    r = requests.get(url, headers=headers)
-    if r.status_code == 200:
-        content = base64.b64decode(r.json()["content"]).decode("utf-8")
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError:
-            print(f"⚠️ Erro ao decodificar {nome_arquivo}")
-            return {}
-    else:
-        print(f"⚠️ Não foi possível carregar {nome_arquivo}: {r.status_code}")
-        return {}
-
-def salvar_json(nome_arquivo, dados):
-    url = f"https://api.github.com/repos/{REPO}/contents/{nome_arquivo}"
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-    conteudo = json.dumps(dados, indent=4, ensure_ascii=False)
-    base64_content = base64.b64encode(conteudo.encode()).decode()
-    r = requests.get(url, headers=headers)
-    sha = r.json().get("sha") if r.status_code == 200 else None
-    data = {"message": f"Atualizando {nome_arquivo}", "content": base64_content, "branch": BRANCH}
-    if sha:
-        data["sha"] = sha
-    r = requests.put(url, headers=headers, json=data)
-    if r.status_code not in [200, 201]:
-        print(f"❌ Erro ao salvar {nome_arquivo}: {r.status_code} - {r.text}")
-
-# 🆕 NOVO BLOCO – funções e loop de verificação de inatividade
-def carregar_atividade():
-    """Carrega o arquivo de atividade do GitHub."""
-    dados = carregar_json(ARQUIVO_ATIVIDADE)
-    return dados if dados else {}
-
-def salvar_atividade(dados):
-    """Salva o arquivo de atividade no GitHub."""
-    salvar_json(ARQUIVO_ATIVIDADE, dados)
-
-def carregar_atividade_6dias():
-    return carregar_json(ARQUIVO_ATIVIDADE_6DIAS)
-
-def salvar_atividade_6dias(dados):
-    salvar_json(ARQUIVO_ATIVIDADE_6DIAS, dados)
-
-# === FUNÇÕES AUXILIARES DE SÉRIES ===
-def carregar_series():
-    """Carrega o arquivo de séries do GitHub."""
-    dados = carregar_json(ARQUIVO_SERIES)
-    return dados if dados else {}
-
-def salvar_series(series):
-    """Salva o arquivo de séries no GitHub."""
-    salvar_json(ARQUIVO_SERIES, series)
-
-def carregar_isencao():
-    """Carrega o arquivo de isenção de inatividade."""
-    dados = carregar_json(ARQUIVO_ISENCAO)
-    return dados if dados else {}
-
-def salvar_isencao(dados):
-    """Salva o arquivo de isenção no GitHub."""
-    salvar_json(ARQUIVO_ISENCAO, dados)
-
-def usuario_tem_isencao(user_id):
-    """Verifica se um usuário tem isenção de inatividade."""
-    isencao = carregar_isencao()
-    return str(user_id) in isencao
-
-def toggle_isencao(user_id, usuario_nome):
-    """Adiciona ou remove isenção de inatividade de um usuário."""
-    isencao = carregar_isencao()
-    user_id_str = str(user_id)
-    
-    if user_id_str in isencao:
-        # Remove isenção
-        del isencao[user_id_str]
-        salvar_isencao(isencao)
-        return False  # Isenção removida
-    else:
-        # Adiciona isenção
-        isencao[user_id_str] = {
-            "usuario": usuario_nome,
-            "data_concessao": agora_brasil().strftime("%Y-%m-%d %H:%M:%S"),
-            "concedido_por": "Sistema"  # Será atualizado no comando
-        }
-        salvar_isencao(isencao)
-        return True  # Isenção concedida
-
-# =============================
-# FUNÇÕES SEASON 2
-# =============================
-def s2_load_salas():
-    return carregar_json(ARQ_S2_SALAS) or {}
-
-def s2_save_salas(dados):
-    salvar_json(ARQ_S2_SALAS, dados)
-
-def s2_load(arq):
-    return carregar_json(arq) or {}
-
-def s2_save(arq, dados):
-    salvar_json(arq, dados)
-
-def s2_extrair_personagem_do_embed(embed: discord.Embed):
-    return embed.title.strip() if embed.title else None
-
-def s2_definir_tipo_personagem(embed: discord.Embed):
-    desc = (embed.description or "").lower()
-    return "wish_outro" if "wish" in desc else "livre"
-
-def s2_registro_automatico(uid, personagem, tipo):
-    chars = s2_load(ARQ_S2_PERSONAGENS)
-    chars.setdefault(uid, []).append({
-        "personagem": personagem,
-        "tipo": tipo,
-        "origem": "sala_privada",
-        "data": agora_brasil().strftime("%Y-%m-%d %H:%M")
-    })
-    s2_save(ARQ_S2_PERSONAGENS, chars)
-
-#------ FECHAR SALA -------
+# ------ FECHAR SALA -------
 async def fechar_sala_automaticamente(uid: str, guild: discord.Guild):
     salas = s2_load_salas()
     players = s2_load(ARQ_S2_PLAYERS)
 
     sala = salas.get(uid)
-    if not sala:
+    if not sala or not sala.get("ativa", False):  # Adicionar verificação
         return
 
     membro = guild.get_member(int(uid))
@@ -396,12 +396,16 @@ async def fechar_sala_automaticamente(uid: str, guild: discord.Guild):
     if membro and cargo:
         await membro.remove_roles(cargo)
 
+    # Atualiza status
     if uid in players:
         players[uid]["sala_ativa"] = False
         s2_save(ARQ_S2_PLAYERS, players)
 
+    # Marca como inativa no arquivo
     salas[uid]["ativa"] = False
     s2_save_salas(salas)
+
+    print(f"✅ Sala fechada para usuário ")
 
 
 # === BOT ===
@@ -1668,7 +1672,8 @@ async def sala_privada_abrir(interaction: discord.Interaction):
         "canal_id": canal.id,
         "aberta_em": agora.strftime("%Y-%m-%d %H:%M:%S"),
         "expira_em": expira_em.strftime("%Y-%m-%d %H:%M:%S"),
-        "usuario_nome": interaction.user.display_name
+        "usuario_nome": interaction.user.display_name,
+        "ativa": True
     }
     s2_save_salas(salas)
 
@@ -1819,9 +1824,14 @@ async def verificar_salas_expiradas():
         if not sala.get("ativa", False):
             continue
 
-        expira = datetime.strptime(
-            sala["expira_em"], "%Y-%m-%d %H:%M:%S"
-        )
+        expira_str = sala.get("expira_em")
+        if not expira_str:
+            continue
+            
+        try:
+            expira = datetime.strptime(expira_str, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
 
         if expira > agora:
             continue
@@ -1832,16 +1842,10 @@ async def verificar_salas_expiradas():
 
         # Fecha UMA ÚNICA VEZ
         await fechar_sala_automaticamente(uid, guild)
-
-        sala["ativa"] = False
         alterado = True
 
-        if uid in players:
-            players[uid]["sala_ativa"] = False
-
     if alterado:
-        s2_save_salas(salas)
-        s2_save(ARQ_S2_PLAYERS, players)
+        print(f"✅ {agora.strftime('%H:%M:%S')} - Salas expiradas verificadas")
 
 
 
