@@ -463,27 +463,35 @@ class PainelSalaView(discord.ui.View):
 # painel ADM
 
 class AplicacaoView(discord.ui.View):
-    def __init__(self, user_id, user_name, message_id=None):
+    def __init__(self, user_id, user_name):
         super().__init__(timeout=None)  # View persistente
         self.user_id = user_id
         self.user_name = user_name
-        self.message_id = message_id
+        
+        # Configura os custom_ids dinamicamente
+        for child in self.children:
+            if isinstance(child, discord.ui.Button):
+                # Adiciona o user_id ao custom_id para torná-lo único
+                if child.custom_id:
+                    child.custom_id = f"{child.custom_id}{user_id}"
+    
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        """Verifica se o usuário é admin"""
+        if not interaction.user.guild_permissions.administrator:
+            await interaction.response.send_message(
+                "⛔ Apenas administradores podem gerenciar aplicações.",
+                ephemeral=True
+            )
+            return False
+        return True
 
     @discord.ui.button(
         label="✅ Aprovar",
         style=discord.ButtonStyle.success,
-        custom_id=f"aplicacao:aprovar:",
+        custom_id="aplicacao:aprovar",  # Base, será modificado no __init__
         row=0
     )
     async def aprovar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Verifica se é admin
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message(
-                "⛔ Apenas administradores podem aprovar aplicações.",
-                ephemeral=True
-            )
-            return
-        
         # Aprova o usuário
         players = s2_load(ARQ_S2_PLAYERS)
         uid = str(self.user_id)
@@ -516,8 +524,8 @@ class AplicacaoView(discord.ui.View):
                 embed.add_field(name="Status", value="Aprovado", inline=True)
                 embed.add_field(name="Próximos passos", value="Use `/sala_privada_abrir` para abrir sua sala", inline=False)
                 await usuario.send(embed=embed)
-            except:
-                pass
+            except Exception as e:
+                print(f"Erro ao enviar DM: {e}")
         
         # Atualiza a mensagem original
         embed = discord.Embed(
@@ -528,6 +536,7 @@ class AplicacaoView(discord.ui.View):
         embed.add_field(name="Status", value="✅ **APROVADO**", inline=True)
         embed.add_field(name="Aprovado por", value=interaction.user.mention, inline=True)
         embed.add_field(name="Data/Hora", value=agora_brasil().strftime("%d/%m/%Y %H:%M"), inline=True)
+        embed.set_footer(text=f"Aprovado por: {interaction.user.display_name}")
         
         # Remove os botões
         self.clear_items()
@@ -541,18 +550,10 @@ class AplicacaoView(discord.ui.View):
     @discord.ui.button(
         label="❌ Recusar",
         style=discord.ButtonStyle.danger,
-        custom_id=f"aplicacao:recusar:",
+        custom_id="aplicacao:recusar",
         row=0
     )
     async def recusar(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Verifica se é admin
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message(
-                "⛔ Apenas administradores podem recusar aplicações.",
-                ephemeral=True
-            )
-            return
-        
         # Remove do arquivo de aplicações
         players = s2_load(ARQ_S2_PLAYERS)
         uid = str(self.user_id)
@@ -573,8 +574,8 @@ class AplicacaoView(discord.ui.View):
                 embed.add_field(name="Status", value="Recusada", inline=True)
                 embed.add_field(name="Motivo", value="Entre em contato com um administrador para mais informações.", inline=False)
                 await usuario.send(embed=embed)
-            except:
-                pass
+            except Exception as e:
+                print(f"Erro ao enviar DM: {e}")
         
         # Atualiza a mensagem original
         embed = discord.Embed(
@@ -585,6 +586,7 @@ class AplicacaoView(discord.ui.View):
         embed.add_field(name="Status", value="❌ **RECUSADO**", inline=True)
         embed.add_field(name="Recusado por", value=interaction.user.mention, inline=True)
         embed.add_field(name="Data/Hora", value=agora_brasil().strftime("%d/%m/%Y %H:%M"), inline=True)
+        embed.set_footer(text=f"Recusado por: {interaction.user.display_name}")
         
         # Remove os botões
         self.clear_items()
@@ -598,18 +600,10 @@ class AplicacaoView(discord.ui.View):
     @discord.ui.button(
         label="ℹ️ Ver Info",
         style=discord.ButtonStyle.secondary,
-        custom_id=f"aplicacao:info:",
+        custom_id="aplicacao:info",
         row=1
     )
     async def info(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Verifica se é admin
-        if not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message(
-                "⛔ Apenas administradores podem ver informações detalhadas.",
-                ephemeral=True
-            )
-            return
-        
         # Carrega informações do jogador
         players = s2_load(ARQ_S2_PLAYERS)
         uid = str(self.user_id)
@@ -618,11 +612,17 @@ class AplicacaoView(discord.ui.View):
             info_text = "Usuário não encontrado nas aplicações."
         else:
             player_data = players[uid]
+            
+            # Verifica se tem imunidade
+            tem_imunidade = usuario_tem_imunidade(self.user_id, interaction.guild.id)
+            imunidade_text = "✅ Não tem" if not tem_imunidade else "⚠️ **TEM IMUNIDADE**"
+            
             info_text = (
                 f"**Status:** {player_data.get('status', 'desconhecido')}\n"
                 f"**Rodadas:** {player_data.get('rodadas', 0)}/3\n"
                 f"**Último reset:** {player_data.get('ultimo_reset', 'Nunca')}\n"
-                f"**Sala ativa:** {'Sim' if player_data.get('sala_ativa', False) else 'Não'}"
+                f"**Sala ativa:** {'Sim' if player_data.get('sala_ativa', False) else 'Não'}\n"
+                f"**Imunidade:** {imunidade_text}"
             )
         
         embed = discord.Embed(
@@ -691,7 +691,6 @@ class ImuneBot(commands.Bot):
     async def setup_hook(self):
         # View persistente
         self.add_view(PainelSalaView())
-        self.add_view(AplicacaoView(user_id=0, user_name="placeholder"))
 
         # Sincroniza slash commands
         await self.tree.sync()
@@ -1823,18 +1822,22 @@ async def sala_privada_apply(interaction: discord.Interaction):
             embed.add_field(name="Data/Hora", value=agora_brasil().strftime("%d/%m/%Y %H:%M"), inline=True)
             embed.set_footer(text="Use os botões abaixo para aprovar ou recusar")
             
-            # Cria view com botões dinâmicos
+            # Cria view com botões
             view = AplicacaoView(
                 user_id=interaction.user.id,
                 user_name=interaction.user.display_name
             )
             
-            # Configura custom_ids únicos
-            for child in view.children:
-                if hasattr(child, 'custom_id'):
-                    child.custom_id = f"{child.custom_id}{interaction.user.id}"
-            
             await canal.send(embed=embed, view=view)
+    else:
+        # Canal não configurado, avisa o administrador
+        embed = discord.Embed(
+            title="⚠️ Canal de Aplicações Não Configurado",
+            description=f"Configure um canal com `/set_canal_apply` primeiro.",
+            color=discord.Color.orange()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
     
     await interaction.response.send_message(
         "📨 Aplicação enviada para a Sala Privada! Aguarde a aprovação dos administradores.", 
