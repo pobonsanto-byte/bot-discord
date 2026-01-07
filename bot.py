@@ -39,6 +39,7 @@ ARQ_S2_PLAYERS = "season2_players.json"
 ARQ_S2_PERSONAGENS = "season2_personagens.json"
 ARQ_S2_VENDAS = "season2_vendas.json"
 ARQ_S2_SALAS = "season2_salas.json"
+ARQUIVO_CASAMENTOS = "casamentos.json"
 
 # =============================
 # CONFIGURAÇÕES SEASON 2
@@ -180,6 +181,12 @@ def toggle_isencao(user_id, usuario_nome):
 # =============================
 # FUNÇÕES SEASON 2
 # =============================
+def carregar_casamentos():
+    return carregar_json(ARQUIVO_CASAMENTOS) or {}
+
+def salvar_casamentos(dados):
+    salvar_json(ARQUIVO_CASAMENTOS, dados)
+
 def s2_load_salas():
     return carregar_json(ARQ_S2_SALAS) or {}
 
@@ -208,6 +215,27 @@ def s2_registro_automatico(uid, personagem, tipo):
         "data": agora_brasil().strftime("%Y-%m-%d %H:%M")
     })
     s2_save(ARQ_S2_PERSONAGENS, chars)
+
+def canal_e_sala_privada_ativa(channel_id: int) -> bool:
+    salas = s2_load_salas()
+    for s in salas.values():
+        if s.get("ativa") and s.get("canal_id") == channel_id:
+            return True
+    return False
+
+def registrar_casamento(guild_id, user_id, usuario_nome, personagem):
+    dados = carregar_casamentos()
+    gid = str(guild_id)
+    uid = str(user_id)
+
+    dados.setdefault(gid, {}).setdefault(uid, []).append({
+        "usuario": usuario_nome,
+        "personagem": personagem,
+        "data": agora_brasil().strftime("%Y-%m-%d %H:%M"),
+        "origem": "sala_privada"
+    })
+
+    salvar_casamentos(dados)
 
 # == PAINEL SEASON 2 ==
 class PainelSalaView(discord.ui.View):
@@ -1099,6 +1127,101 @@ async def painel_sala(interaction: discord.Interaction):
         ephemeral=True
     )
 
+# === LISTA CASAMENTO ===
+@bot.tree.command(
+    name="lista_casamentos",
+    description="Lista os casamentos registrados nas salas privadas."
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def lista_casamentos(interaction: discord.Interaction):
+    dados = carregar_casamentos()
+    guild_id = str(interaction.guild.id)
+
+    if guild_id not in dados or not dados[guild_id]:
+        await interaction.response.send_message(
+            "📭 Nenhum casamento registrado neste servidor.",
+            ephemeral=True
+        )
+        return
+
+    # 🔹 monta lista plana
+    registros = []
+    for uid, lista in dados[guild_id].items():
+        for item in lista:
+            registros.append({
+                "user_id": uid,
+                "usuario": item["usuario"],
+                "personagem": item["personagem"],
+                "data": item["data"]
+            })
+
+    # Ordena do mais recente pro mais antigo
+    registros.sort(key=lambda x: x["data"], reverse=True)
+
+    # ===== VIEW DE PAGINAÇÃO =====
+    class CasamentosView(discord.ui.View):
+        def __init__(self):
+            super().__init__(timeout=120)
+            self.page = 0
+            self.per_page = 5
+            self.total_pages = (len(registros) - 1) // self.per_page + 1
+
+        def gerar_embed(self):
+            inicio = self.page * self.per_page
+            fim = inicio + self.per_page
+            pagina = registros[inicio:fim]
+
+            embed = discord.Embed(
+                title="💍 Casamentos nas Salas Privadas",
+                color=discord.Color.pink()
+            )
+
+            for r in pagina:
+                membro = interaction.guild.get_member(int(r["user_id"]))
+                nome = membro.display_name if membro else r["usuario"]
+
+                embed.add_field(
+                    name=f"👤 {nome}",
+                    value=(
+                        f"💖 **{r['personagem']}**\n"
+                        f"📅 `{r['data']}`"
+                    ),
+                    inline=False
+                )
+
+            embed.set_footer(
+                text=f"Página {self.page + 1}/{self.total_pages} • Total: {len(registros)}"
+            )
+            return embed
+
+        @discord.ui.button(label="⬅️", style=discord.ButtonStyle.gray)
+        async def anterior(self, interaction_btn: discord.Interaction, button: discord.ui.Button):
+            if self.page > 0:
+                self.page -= 1
+                await interaction_btn.response.edit_message(
+                    embed=self.gerar_embed(),
+                    view=self
+                )
+            else:
+                await interaction_btn.response.defer()
+
+        @discord.ui.button(label="➡️", style=discord.ButtonStyle.gray)
+        async def proximo(self, interaction_btn: discord.Interaction, button: discord.ui.Button):
+            if self.page < self.total_pages - 1:
+                self.page += 1
+                await interaction_btn.response.edit_message(
+                    embed=self.gerar_embed(),
+                    view=self
+                )
+            else:
+                await interaction_btn.response.defer()
+
+    view = CasamentosView()
+    await interaction.response.send_message(
+        embed=view.gerar_embed(),
+        view=view,
+        ephemeral=True
+    )
 
 # === COMANDOS ADMIN ===
 @bot.tree.command(name="isencao_inatividade", description="Concede ou remove isenção de penalidade por inatividade de um usuário.")
@@ -1766,6 +1889,71 @@ async def obter_ultima_embed_mudae(channel: discord.TextChannel):
             return autor, footer, descricao
     return None, None, None
 
+async def detectar_casamento_mudae(message: discord.Message):
+
+    # Apenas salas privadas ativas
+    if not canal_e_sala_privada_ativa(message.channel.id):
+        return
+
+    embed = message.embeds[0]
+
+    # Nome do personagem
+    personagem = embed.title
+    if not personagem:
+        return
+
+    descricao = (embed.description or "").lower()
+
+    # Palavras-chave confiáveis de casamento / claim
+    palavras_casamento = [
+        "married",
+        "belongs to",
+        "is now married",
+        "claimed",
+        "casou"
+    ]
+
+    if not any(p in descricao for p in palavras_casamento):
+        return  # não é casamento
+
+    # =========================
+    # === IDENTIFICAR USUÁRIO
+    # =========================
+    usuario_id = None
+    usuario_nome = None
+
+    # 🔹 tenta capturar menção
+    import re
+    m = re.search(r"<@!?(\d+)>", embed.description or "")
+    if m:
+        usuario_id = int(m.group(1))
+        membro = message.guild.get_member(usuario_id)
+        if membro:
+            usuario_nome = membro.display_name
+
+    # 🔹 fallback: autor do embed
+    if embed.author and embed.author.name:
+        usuario_nome = usuario_nome or embed.author.name
+
+    # Segurança
+    if not usuario_id or not usuario_nome:
+        return
+
+    # =========================
+    # === REGISTRA CASAMENTO
+    # =========================
+    registrar_casamento(
+        message.guild.id,
+        usuario_id,
+        usuario_nome,
+        personagem
+    )
+
+    print(
+        f"💍 CASAMENTO REGISTRADO | {usuario_nome} -> {personagem} "
+        f"| Sala: #{message.channel.name}"
+    )
+
 # =============================
 # COMANDOS SEASON 2
 # =============================
@@ -2285,10 +2473,15 @@ async def debug_salas(interaction: discord.Interaction):
 # === EVENTOS === 
 @bot.event
 async def on_message(message: discord.Message):
+
+    # ===============================
+    # === MENSAGENS DE BOT (MUDAE)
+    # ===============================
     if message.author.bot:
-        # Registro automático da Mudae em salas privadas
+
         if message.author.id == MUDAE_BOT_ID and message.embeds:
-            # Verifica se a mensagem está em uma sala privada
+
+            # 🔹 1) REGISTRO AUTOMÁTICO S2 (SEU CÓDIGO ATUAL)
             for uid, info in S2_SALAS_ATIVAS.items():
                 if info.get("canal") and message.channel.id == info["canal"].id:
                     personagem = s2_extrair_personagem_do_embed(message.embeds[0])
@@ -2296,7 +2489,10 @@ async def on_message(message: discord.Message):
                         tipo = s2_definir_tipo_personagem(message.embeds[0])
                         s2_registro_automatico(uid, personagem, tipo)
                     break
-        
+
+            # 🔹 2) DETECTOR DE CASAMENTO (NOVO)
+            await detectar_casamento_mudae(message)
+
         return
 
     if message.content.lower().startswith("$imao "):
@@ -2485,76 +2681,87 @@ async def on_message(message: discord.Message):
 
     # === EVENTO DE CASAMENTO DA MUDAE VIA EMBED ===
 @bot.event
-async def on_message_edit(before, after):
-    # Só processa mensagens da Mudae
-    if after.author.bot and after.author.name.lower() == "mudae" and after.embeds:
-        imunes = carregar_json(ARQUIVO_IMUNES)
-        guild_id = str(after.guild.id)
-        if guild_id not in imunes:
-            return
+async def on_message(message: discord.Message):
 
-        embed = after.embeds[0]
-        if embed.description and "Pertence a" in embed.description:
-            # Extrai nome do dono
-            m = re.search(r"Pertence a (.+)", embed.description)
-            if not m:
-                return
-            dono_nome = m.group(1).strip()
+    # ⚠️ deixa outros comandos funcionarem
+    await bot.process_commands(message)
 
-            # Extrai nome do personagem
-            personagem = embed.author.name if embed.author and embed.author.name else embed.title
-            if not personagem:
-                return
+    # Só mensagens da Mudae
+    if message.author.id != MUDAE_BOT_ID:
+        return
 
-            personagem_normalizado = normalizar_texto(personagem)
+    # Precisa ter embed
+    if not message.embeds:
+        return
 
-            # Verifica se é um personagem imune
-            personagem_encontrado = None
-            for uid, dados in imunes[guild_id].items():
-                if normalizar_texto(dados["personagem"]) == personagem_normalizado:
-                    personagem_encontrado = (uid, dados)
-                    break
-            if not personagem_encontrado:
-                return
+    # Apenas salas privadas ativas
+    if not canal_e_sala_privada_ativa(message.channel.id):
+        return
 
-            user_id, dados_p = personagem_encontrado
-            canal_id = carregar_json(ARQUIVO_CONFIG).get(guild_id)
-            if not canal_id:
-                return
-            canal = after.guild.get_channel(canal_id)
-            if not canal:
-                return
+    embed = message.embeds[0]
 
-            usuario_imune = after.guild.get_member(int(user_id))
-            pegador = discord.utils.find(
-                lambda m: normalizar_texto(m.name) == normalizar_texto(dono_nome)
-                          or normalizar_texto(m.display_name) == normalizar_texto(dono_nome),
-                after.guild.members
-            )
+    personagem = embed.title
+    if not personagem:
+        return
 
-            # Mensagem personalizada
-            if pegador and pegador.id == usuario_imune.id:
-                texto = (
-                    f"💖 {usuario_imune.mention}, você se casou com seu personagem imune "
-                    f"**{dados_p['personagem']} ({dados_p['origem']})**! A imunidade foi removida e você está em cooldown por 3 dias."
-                )
-            elif pegador:
-                texto = (
-                    f"{usuario_imune.mention}, seu personagem imune **{dados_p['personagem']} ({dados_p['origem']})** "
-                    f"se casou com {pegador.mention}! A imunidade foi removida e você está em cooldown por 3 dias."
-                )
-            else:
-                texto = (
-                    f"{usuario_imune.mention}, seu personagem imune **{dados_p['personagem']} ({dados_p['origem']})** "
-                    f"se casou com **{dono_nome}**! A imunidade foi removida e você está em cooldown por 3 dias."
-                )
+    descricao = (embed.description or "").lower()
 
-            await canal.send(texto)
+    # 🔍 palavras-chave que indicam CASAMENTO / CLAIM
+    palavras_casamento = [
+        "married",
+        "belongs to",
+        "is now married",
+        "claimed",
+        "casou"
+    ]
 
-            # Remove imunidade e aplica cooldown de 3 dias
-            del imunes[guild_id][user_id]
-            salvar_json(ARQUIVO_IMUNES, imunes)
-            definir_cooldown(user_id, dias=3)
+    if not any(p in descricao for p in palavras_casamento):
+        return  # não é casamento
+
+    # 👤 tenta pegar o usuário
+    usuario_nome = None
+    usuario_id = None
+
+    # Método 1: autor do embed
+    if embed.author and embed.author.name:
+        usuario_nome = embed.author.name
+
+    # Método 2: menção no texto
+    import re
+    m = re.search(r"<@!?(\d+)>", embed.description or "")
+    if m:
+        usuario_id = int(m.group(1))
+        membro = message.guild.get_member(usuario_id)
+        if membro:
+            usuario_nome = membro.display_name
+
+    # Falha segura
+    if not usuario_nome:
+        usuario_nome = "Desconhecido"
+
+    if not usuario_id:
+        # tenta resolver pelo nome
+        for m in message.guild.members:
+            if m.display_name == usuario_nome:
+                usuario_id = m.id
+                break
+
+    if not usuario_id:
+        return  # impossível identificar com segurança
+
+    # 💾 registra casamento
+    registrar_casamento(
+        message.guild.id,
+        usuario_id,
+        usuario_nome,
+        personagem
+    )
+
+    print(
+        f"💍 CASAMENTO REGISTRADO | {usuario_nome} -> {personagem} "
+        f"(Sala Privada | {message.channel.name})"
+    )
+
 
 # === LOOP DE VERIFICAÇÃO ===
 @tasks.loop(hours=1)
