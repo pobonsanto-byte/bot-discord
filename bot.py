@@ -732,7 +732,9 @@ class ImuneBot(commands.Bot):
         checar_atividade.before_loop(self.wait_until_ready)
         checar_atividade.start()
 
+        s2_reset.before_loop(self.wait_until_ready)
         s2_reset.start()
+
         verificar_salas_expiradas.start()
 
         # Executa uma vez ao iniciar
@@ -2273,22 +2275,29 @@ async def sala_privada_fechar(interaction: discord.Interaction):
         )
 
 # ---------- RESET DIÁRIO ----------
-@tasks.loop(minutes=1)
+@tasks.loop(minutes=5)
 async def s2_reset():
-    agora = agora_brasil().strftime("%H:%M")
-    if agora != "23:45":
-        return
+    agora = agora_brasil()
+    hoje = agora.strftime("%Y-%m-%d")
 
     players = s2_load(ARQ_S2_PLAYERS)
-    hoje = agora_brasil().strftime("%Y-%m-%d")
+    alterou = False
 
-    for p in players.values():
-        if p["status"] == "aprovado" and p["ultimo_reset"] != hoje:
-            p["rodadas"] = 3
-            p["ultimo_reset"] = hoje
-            p["sala_ativa"] = False
+    for uid, dados in players.items():
+        ultimo_reset = dados.get("ultimo_reset")
 
-    s2_save(ARQ_S2_PLAYERS, players)
+        if ultimo_reset != hoje:
+            dados["rodadas"] = 3
+            dados["ultimo_reset"] = hoje
+            dados["sala_ativa"] = False
+            alterou = True
+            print(f"🔄 Reset diário aplicado para {uid}")
+
+    if alterou:
+        s2_save(ARQ_S2_PLAYERS, players)
+        print("✅ Reset diário da Season 2 concluído.")
+
+
 
 # ---------- VERIFICAR SALAS EXPIRADAS ----------
 @tasks.loop(minutes=1)
