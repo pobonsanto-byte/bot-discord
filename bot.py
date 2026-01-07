@@ -1891,108 +1891,6 @@ async def obter_ultima_embed_mudae(channel: discord.TextChannel):
             return autor, footer, descricao
     return None, None, None
 
-# === DETECTAR CASAMENTO FORA DE SALAS PRIVADAS ===
-async def detectar_casamento_fora_salas(message: discord.Message):
-    """Detecta casamento fora de salas privadas e remove imunidade se necessário."""
-    
-    # 🔹 Verifica se está em uma sala privada (ignora se estiver)
-    if canal_e_sala_privada_ativa(message.channel.id):
-        return
-    
-    embed = message.embeds[0]
-    
-    # 🔹 Nome do personagem
-    personagem = embed.title or (embed.author.name if embed.author else None)
-    if not personagem:
-        return
-    
-    # 🔹 Texto completo do embed
-    texto = ""
-    if embed.description:
-        texto += embed.description.lower() + " "
-    if embed.footer and embed.footer.text:
-        texto += embed.footer.text.lower()
-    
-    # 🔹 Palavras-chave de casamento
-    palavras_casamento = [
-        "pertence a",
-        "belongs to",
-        "is now married",
-        "married to",
-        "claimed",
-        "casou",
-        "married"
-    ]
-    
-    if not any(palavra in texto for palavra in palavras_casamento):
-        return
-    
-    # 🔹 Extrai nome do usuário que casou
-    import re
-    padrao_usuario = re.search(r"pertence a (.+)", texto)
-    if not padrao_usuario:
-        # Tenta outros padrões
-        padrao_usuario = re.search(r"belongs to (.+)", texto)
-    if not padrao_usuario:
-        return
-    
-    usuario_nome = padrao_usuario.group(1).strip()
-    
-    # 🔹 Tenta encontrar o usuário no servidor
-    usuario_id = None
-    for membro in message.guild.members:
-        if membro.display_name.lower() == usuario_nome.lower():
-            usuario_id = membro.id
-            break
-    
-    if not usuario_id:
-        # Se não encontrar por display_name, tenta por username
-        for membro in message.guild.members:
-            if membro.name.lower() == usuario_nome.lower():
-                usuario_id = membro.id
-                break
-    
-    if not usuario_id:
-        print(f"⚠️ Usuário {usuario_nome} não encontrado no servidor")
-        return
-    
-    # 🔹 Verifica se o personagem está na lista de imunidades
-    guild_id = str(message.guild.id)
-    imunes = carregar_json(ARQUIVO_IMUNES)
-    
-    if guild_id not in imunes:
-        return
-    
-    personagem_normalizado = normalizar_texto(personagem)
-    
-    for user_id, dados in imunes[guild_id].items():
-        if normalizar_texto(dados["personagem"]) == personagem_normalizado:
-            usuario_imune = message.guild.get_member(int(user_id))
-            if not usuario_imune:
-                continue
-            
-            # 🔴 REMOVE DA LISTA DE IMUNIDADES
-            del imunes[guild_id][user_id]
-            salvar_json(ARQUIVO_IMUNES, imunes)
-            
-            # 🔴 APLICA COOLDOWN DE 3 DIAS
-            definir_cooldown(user_id, dias=3)
-            
-            # 🔴 Envia aviso no canal configurado
-            config = carregar_json(ARQUIVO_CONFIG)
-            canal_id = config.get(guild_id)
-            canal = message.guild.get_channel(canal_id) if canal_id else None
-            
-            if canal:
-                await canal.send(
-                    f"⚠️ {usuario_imune.mention}, seu personagem imune "
-                    f"**{dados['personagem']} ({dados['origem']})** já foi pego. "
-                    f"Você agora está em cooldown de **3 dias** para usar `/imune_add` novamente."
-                )
-            
-            print(f"[CASAMENTO FORA SALA] {dados['personagem']} removido das imunidades. Cooldown aplicado a {usuario_imune}.")
-            break
-
 async def detectar_casamento_mudae(message: discord.Message):
 
     if not canal_e_sala_privada_ativa(message.channel.id):
@@ -2601,9 +2499,6 @@ async def on_message(message: discord.Message):
 
             # 🔹 2) DETECTOR DE CASAMENTO (NOVO)
             await detectar_casamento_mudae(message)
-
-            # 🔹 3) DETECTOR DE CASAMENTO FORA DE SALAS (APENAS REMOVE IMUNIDADE)
-            await detectar_casamento_fora_salas(message)
 
         return
 
