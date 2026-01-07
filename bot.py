@@ -1891,57 +1891,55 @@ async def obter_ultima_embed_mudae(channel: discord.TextChannel):
 
 async def detectar_casamento_mudae(message: discord.Message):
 
-    # Apenas salas privadas ativas
     if not canal_e_sala_privada_ativa(message.channel.id):
         return
 
     embed = message.embeds[0]
 
-    # Nome do personagem
-    personagem = embed.title
+    # 🔹 nome do personagem
+    personagem = embed.title or (embed.author.name if embed.author else None)
     if not personagem:
         return
 
-    descricao = (embed.description or "").lower()
+    # 🔹 texto completo do embed
+    texto = ""
 
-    # Palavras-chave confiáveis de casamento / claim
+    if embed.description:
+        texto += embed.description.lower() + " "
+
+    if embed.footer and embed.footer.text:
+        texto += embed.footer.text.lower()
+
     palavras_casamento = [
-        "married",
+        "pertence a",
         "belongs to",
         "is now married",
-        "pertence a",
+        "married to",
+        "claimed",
         "casou"
     ]
 
-    if not any(p in descricao for p in palavras_casamento):
-        return  # não é casamento
-
-    # =========================
-    # === IDENTIFICAR USUÁRIO
-    # =========================
-    usuario_id = None
-    usuario_nome = None
-
-    # 🔹 tenta capturar menção
-    import re
-    m = re.search(r"<@!?(\d+)>", embed.description or "")
-    if m:
-        usuario_id = int(m.group(1))
-        membro = message.guild.get_member(usuario_id)
-        if membro:
-            usuario_nome = membro.display_name
-
-    # 🔹 fallback: autor do embed
-    if embed.author and embed.author.name:
-        usuario_nome = usuario_nome or embed.author.name
-
-    # Segurança
-    if not usuario_id or not usuario_nome:
+    if not any(p in texto for p in palavras_casamento):
         return
 
-    # =========================
-    # === REGISTRA CASAMENTO
-    # =========================
+    # 🔹 extrai nome do usuário do footer
+    import re
+    m = re.search(r"pertence a (.+)", texto)
+    if not m:
+        return
+
+    usuario_nome = m.group(1).strip()
+
+    # tenta resolver ID
+    usuario_id = None
+    for mbr in message.guild.members:
+        if mbr.display_name.lower() == usuario_nome.lower():
+            usuario_id = mbr.id
+            break
+
+    if not usuario_id:
+        return
+
     registrar_casamento(
         message.guild.id,
         usuario_id,
@@ -1950,9 +1948,9 @@ async def detectar_casamento_mudae(message: discord.Message):
     )
 
     print(
-        f"💍 CASAMENTO REGISTRADO | {usuario_nome} -> {personagem} "
-        f"| Sala: #{message.channel.name}"
+        f"💍 CASAMENTO DETECTADO | {usuario_nome} -> {personagem}"
     )
+
 
 # =============================
 # COMANDOS SEASON 2
