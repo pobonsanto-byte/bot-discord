@@ -1909,7 +1909,7 @@ async def detectar_casamento_mudae(message: discord.Message):
         "married",
         "belongs to",
         "is now married",
-        "pertence",
+        "pertence a",
         "casou"
     ]
 
