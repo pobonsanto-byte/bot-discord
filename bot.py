@@ -39,7 +39,8 @@ ARQ_S2_PLAYERS = "season2_players.json"
 ARQ_S2_PERSONAGENS = "season2_personagens.json"
 ARQ_S2_VENDAS = "season2_vendas.json"
 ARQ_S2_SALAS = "season2_salas.json"
-ARQUIVO_CASAMENTOS = "casamentos.json"
+ARQ_CASAMENTOS_PRIVADOS = "casamentos_privados.json"
+ARQ_CASAMENTOS_PUBLICOS = "casamentos_publicos.json"
 
 # =============================
 # CONFIGURAÇÕES SEASON 2
@@ -181,11 +182,17 @@ def toggle_isencao(user_id, usuario_nome):
 # =============================
 # FUNÇÕES SEASON 2
 # =============================
-def carregar_casamentos():
-    return carregar_json(ARQUIVO_CASAMENTOS) or {}
+def carregar_casamentos_privados():
+    return carregar_json(ARQ_CASAMENTOS_PRIVADOS) or {}
 
-def salvar_casamentos(dados):
-    salvar_json(ARQUIVO_CASAMENTOS, dados)
+def salvar_casamentos_privados(d):
+    salvar_json(ARQ_CASAMENTOS_PRIVADOS, d)
+
+def carregar_casamentos_publicos():
+    return carregar_json(ARQ_CASAMENTOS_PUBLICOS) or {}
+
+def salvar_casamentos_publicos(d):
+    salvar_json(ARQ_CASAMENTOS_PUBLICOS, d)
 
 def s2_load_salas():
     return carregar_json(ARQ_S2_SALAS) or {}
@@ -223,8 +230,18 @@ def canal_e_sala_privada_ativa(channel_id: int) -> bool:
             return True
     return False
 
-def registrar_casamento(guild_id, user_id, usuario_nome, personagem):
-    dados = carregar_casamentos()
+def registrar_casamento_inteligente(
+    guild_id,
+    user_id,
+    usuario_nome,
+    personagem,
+    em_sala_privada: bool
+):
+    if em_sala_privada:
+        dados = carregar_casamentos_privados()
+    else:
+        dados = carregar_casamentos_publicos()
+
     gid = str(guild_id)
     uid = str(user_id)
 
@@ -232,10 +249,14 @@ def registrar_casamento(guild_id, user_id, usuario_nome, personagem):
         "usuario": usuario_nome,
         "personagem": personagem,
         "data": agora_brasil().strftime("%Y-%m-%d %H:%M"),
-        "origem": "sala_privada"
+        "origem": "privada" if em_sala_privada else "publica"
     })
 
-    salvar_casamentos(dados)
+    if em_sala_privada:
+        salvar_casamentos_privados(dados)
+    else:
+        salvar_casamentos_publicos(dados)
+
 
 # == PAINEL SEASON 2 ==
 class PainelSalaView(discord.ui.View):
@@ -1130,35 +1151,53 @@ async def painel_sala(interaction: discord.Interaction):
 # === LISTA CASAMENTO ===
 @bot.tree.command(
     name="lista_casamentos",
-    description="Lista os casamentos registrados nas salas privadas."
+    description="Lista todos os casamentos registrados (salas privadas e fora delas)."
 )
 @app_commands.checks.has_permissions(administrator=True)
 async def lista_casamentos(interaction: discord.Interaction):
-    dados = carregar_casamentos()
+
+    dados_privados = carregar_casamentos_privados()
+    dados_publicos = carregar_casamentos_publicos()
+
     guild_id = str(interaction.guild.id)
 
-    if guild_id not in dados or not dados[guild_id]:
+    registros = []
+
+    # 🔹 privados
+    for uid, lista in dados_privados.get(guild_id, {}).items():
+        for item in lista:
+            registros.append({
+                "user_id": uid,
+                "usuario": item["usuario"],
+                "personagem": item["personagem"],
+                "data": item["data"],
+                "origem": "Season 2"
+            })
+
+    # 🔹 públicos
+    for uid, lista in dados_publicos.get(guild_id, {}).items():
+        for item in lista:
+            registros.append({
+                "user_id": uid,
+                "usuario": item["usuario"],
+                "personagem": item["personagem"],
+                "data": item["data"],
+                "origem": "Season 1"
+            })
+
+    if not registros:
         await interaction.response.send_message(
             "📭 Nenhum casamento registrado neste servidor.",
             ephemeral=True
         )
         return
 
-    # 🔹 monta lista plana
-    registros = []
-    for uid, lista in dados[guild_id].items():
-        for item in lista:
-            registros.append({
-                "user_id": uid,
-                "usuario": item["usuario"],
-                "personagem": item["personagem"],
-                "data": item["data"]
-            })
-
-    # Ordena do mais recente pro mais antigo
+    # Ordena do mais recente para o mais antigo
     registros.sort(key=lambda x: x["data"], reverse=True)
 
-    # ===== VIEW DE PAGINAÇÃO =====
+    # ==========================
+    # === VIEW DE PAGINAÇÃO ===
+    # ==========================
     class CasamentosView(discord.ui.View):
         def __init__(self):
             super().__init__(timeout=120)
@@ -1172,7 +1211,8 @@ async def lista_casamentos(interaction: discord.Interaction):
             pagina = registros[inicio:fim]
 
             embed = discord.Embed(
-                title="💍 Casamentos nas Salas Privadas",
+                title="💍 Casamentos Registrados",
+                description="Inclui salas privadas e casamentos fora delas.",
                 color=discord.Color.pink()
             )
 
@@ -1184,6 +1224,7 @@ async def lista_casamentos(interaction: discord.Interaction):
                     name=f"👤 {nome}",
                     value=(
                         f"💖 **{r['personagem']}**\n"
+                        f"📍 {r['origem']}\n"
                         f"📅 `{r['data']}`"
                     ),
                     inline=False
@@ -1222,6 +1263,7 @@ async def lista_casamentos(interaction: discord.Interaction):
         view=view,
         ephemeral=True
     )
+
 
 # === COMANDOS ADMIN ===
 @bot.tree.command(name="isencao_inatividade", description="Concede ou remove isenção de penalidade por inatividade de um usuário.")
@@ -1891,17 +1933,14 @@ async def obter_ultima_embed_mudae(channel: discord.TextChannel):
 
 async def detectar_casamento_mudae(message: discord.Message):
 
-    if not canal_e_sala_privada_ativa(message.channel.id):
-        return
-
     embed = message.embeds[0]
 
-    # 🔹 nome do personagem
+    # personagem
     personagem = embed.title or (embed.author.name if embed.author else None)
     if not personagem:
         return
 
-    # 🔹 texto completo do embed
+    # texto completo
     texto = ""
 
     if embed.description:
@@ -1922,7 +1961,7 @@ async def detectar_casamento_mudae(message: discord.Message):
     if not any(p in texto for p in palavras_casamento):
         return
 
-    # 🔹 extrai nome do usuário do footer
+    # usuário
     import re
     m = re.search(r"pertence a (.+)", texto)
     if not m:
@@ -1930,7 +1969,6 @@ async def detectar_casamento_mudae(message: discord.Message):
 
     usuario_nome = m.group(1).strip()
 
-    # tenta resolver ID
     usuario_id = None
     for mbr in message.guild.members:
         if mbr.display_name.lower() == usuario_nome.lower():
@@ -1940,16 +1978,56 @@ async def detectar_casamento_mudae(message: discord.Message):
     if not usuario_id:
         return
 
-    registrar_casamento(
+    # 🔍 sala privada?
+    em_sala_privada = canal_e_sala_privada_ativa(message.channel.id)
+
+    # 💾 registra
+    registrar_casamento_inteligente(
         message.guild.id,
         usuario_id,
         usuario_nome,
-        personagem
+        personagem,
+        em_sala_privada
     )
 
+    # 🔥 REGRA: só casamento FORA da sala privada remove imunidade
+    if not em_sala_privada:
+        await remover_imunidade_se_existir(
+            message.guild,
+            personagem
+        )
+
     print(
-        f"💍 CASAMENTO DETECTADO | {usuario_nome} -> {personagem}"
+        f"💍 CASAMENTO {'PRIVADO' if em_sala_privada else 'PUBLICO'} | "
+        f"{usuario_nome} -> {personagem}"
     )
+
+async def remover_imunidade_se_existir(guild: discord.Guild, personagem: str):
+
+    imunes = carregar_json(ARQUIVO_IMUNES)
+    gid = str(guild.id)
+
+    if gid not in imunes:
+        return
+
+    personagem_norm = normalizar_texto(personagem)
+
+    for user_id, dados in list(imunes[gid].items()):
+        if normalizar_texto(dados["personagem"]) == personagem_norm:
+
+            membro = guild.get_member(int(user_id))
+            if not membro:
+                continue
+
+            del imunes[gid][user_id]
+            salvar_json(ARQUIVO_IMUNES, imunes)
+
+            definir_cooldown(user_id, dias=3)
+
+            print(
+                f"🧹 IMUNIDADE REMOVIDA | {dados['personagem']} | "
+            )
+            break
 
 
 # =============================
@@ -2479,7 +2557,7 @@ async def on_message(message: discord.Message):
 
         if message.author.id == MUDAE_BOT_ID and message.embeds:
 
-            # 🔹 1) REGISTRO AUTOMÁTICO S2 (SEU CÓDIGO ATUAL)
+            # 🔹 1) REGISTRO AUTOMÁTICO S2
             for uid, info in S2_SALAS_ATIVAS.items():
                 if info.get("canal") and message.channel.id == info["canal"].id:
                     personagem = s2_extrair_personagem_do_embed(message.embeds[0])
@@ -2488,11 +2566,18 @@ async def on_message(message: discord.Message):
                         s2_registro_automatico(uid, personagem, tipo)
                     break
 
-            # 🔹 2) DETECTOR DE CASAMENTO (NOVO)
+            # 🔹 2) DETECTOR DE CASAMENTO (privado + público)
             await detectar_casamento_mudae(message)
 
-        return
+        return  # ⛔ bots não processam comandos nem lógica abaixo
 
+    # =====================================================
+    # === DAQUI PARA BAIXO: APENAS MENSAGENS DE USUÁRIO ===
+    # =====================================================
+
+    # ====================================
+    # === COMANDO $IMAO
+    # ====================================
     if message.content.lower().startswith("$imao "):
         canais_permitidos = [1430256427967975526]
         if message.channel.id not in canais_permitidos:
@@ -2501,13 +2586,16 @@ async def on_message(message: discord.Message):
         partes = message.content.split(" ", 1)
         if len(partes) < 2:
             return
+
         nome_serie = partes[1].strip().lower()
 
         series = carregar_json("series.json")
         if nome_serie not in series:
             series[nome_serie] = {}
 
-        await message.channel.send(f"🔍 Iniciando coleta da série `{nome_serie}`... aguardando páginas da Mudae.")
+        await message.channel.send(
+            f"🔍 Iniciando coleta da série `{nome_serie}`... aguardando páginas da Mudae."
+        )
 
         paginas_coletadas = 0
         personagens_total = 0
@@ -2522,21 +2610,17 @@ async def on_message(message: discord.Message):
             )
 
         try:
-            # Primeiro tenta achar mensagem da Mudae já existente
             async for msg in message.channel.history(limit=10):
                 if msg.author.bot and msg.author.name.lower() == "mudae" and msg.embeds:
                     ultima_mensagem_mudae = msg
-                    print(f"[DEBUG] Mensagem da Mudae encontrada no histórico ({msg.id})")
                     break
 
-            # Se não achou, espera uma nova mensagem
             if not ultima_mensagem_mudae:
                 ultima_mensagem_mudae = await bot.wait_for(
                     "message",
                     check=lambda m: m.author.bot and m.author.name.lower() == "mudae" and m.embeds,
                     timeout=30,
                 )
-                print(f"[DEBUG] Mensagem da Mudae recebida ({ultima_mensagem_mudae.id})")
 
             while True:
                 await asyncio.sleep(1)
@@ -2551,8 +2635,9 @@ async def on_message(message: discord.Message):
                     if match:
                         personagem, usuario = match.groups()
                         usuario = usuario.strip().replace("@", "").replace("<", "").replace(">", "")
-                        if usuario not in series[nome_serie]:
-                            series[nome_serie][usuario] = []
+
+                        series.setdefault(nome_serie, {}).setdefault(usuario, [])
+
                         if personagem not in series[nome_serie][usuario]:
                             series[nome_serie][usuario].append(personagem)
                             personagens_encontrados += 1
@@ -2564,31 +2649,35 @@ async def on_message(message: discord.Message):
                         f"📄 Página {paginas_coletadas} coletada ({personagens_encontrados} personagens)."
                     )
 
-                # Aguarda nova edição (mudança de página)
                 try:
-                    before, after = await bot.wait_for("message_edit", check=eh_mudae_edit, timeout=20)
+                    before, after = await bot.wait_for(
+                        "message_edit",
+                        check=eh_mudae_edit,
+                        timeout=20
+                    )
                     ultima_mensagem_mudae = after
-                    print(f"[DEBUG] Nova edição detectada ({after.id})")
                 except asyncio.TimeoutError:
-                    print("[DEBUG] Timeout sem novas edições — encerrando coleta.")
                     break
 
             salvar_json("series.json", series)
             await message.channel.send(
-                f"✅ Coleta finalizada! Série: `{nome_serie}` — **{paginas_coletadas} páginas** e **{personagens_total} personagens** processados."
+                f"✅ Coleta finalizada! Série `{nome_serie}` — "
+                f"**{paginas_coletadas} páginas**, **{personagens_total} personagens**."
             )
 
         except asyncio.TimeoutError:
-            await message.channel.send("⚠️ Nenhuma resposta da Mudae após 30s. Tente novamente.")
+            await message.channel.send(
+                "⚠️ Nenhuma resposta da Mudae após 30s. Tente novamente."
+            )
 
-            
+        return  # ⛔ evita cair em outras lógicas
+
     # ====================================
     # === ATUALIZAÇÃO DE ATIVIDADE
     # ====================================
     roll_prefixes = ("$w", "$wg", "$wa", "$ha", "$hg", "$h")
     if message.content.startswith(roll_prefixes):
         try:
-            # === Atualiza atividade individual ===
             atividade = carregar_json(ARQUIVO_ATIVIDADE)
             atividade[str(message.author.id)] = {
                 "usuario": message.author.name,
@@ -2596,88 +2685,73 @@ async def on_message(message: discord.Message):
             }
             salvar_json(ARQUIVO_ATIVIDADE, atividade)
 
-            # === Atualiza histórico dos últimos 6 dias ===
             historico = carregar_json(ARQUIVO_ATIVIDADE_6DIAS)
             hoje = agora_brasil().strftime("%Y-%m-%d")
 
-            # Se o dia ainda não existe, cria
-            if hoje not in historico:
-                historico[hoje] = {}
+            historico.setdefault(hoje, {})[str(message.author.id)] = message.author.name
 
-            # Marca o usuário como ativo hoje
-            historico[hoje][str(message.author.id)] = message.author.name
-
-            # Mantém apenas os últimos 6 dias
             dias_validos = sorted(
-                [d for d in historico.keys() if re.match(r"\d{4}-\d{2}-\d{2}", d)]
+                [d for d in historico if re.match(r"\d{4}-\d{2}-\d{2}", d)]
             )
-            if len(dias_validos) > 6:
-                for dia_antigo in dias_validos[:-6]:
-                    del historico[dia_antigo]
+            for dia in dias_validos[:-6]:
+                historico.pop(dia, None)
 
             salvar_json(ARQUIVO_ATIVIDADE_6DIAS, historico)
-            print(f"📆 Histórico de 6 dias atualizado ({len(historico)} dias mantidos).")
 
         except Exception as e:
             print(f"⚠️ Erro ao atualizar histórico: {e}")
-
-                        
 
     # ====================================
     # === DETECTOR AUTOMÁTICO DE $IM
     # ====================================
     if message.content.lower().startswith("$im "):
         await asyncio.sleep(3)
-        
-        personagem, footer_text, descricao = await obter_ultima_embed_mudae(message.channel)
+
+        personagem, footer_text, _ = await obter_ultima_embed_mudae(message.channel)
         if not personagem or not footer_text:
             return
-            
-        # Melhor regex para capturar o nome completo (até o ~)
+
         match = re.search(r"Pertence a ([^~\n]+)", footer_text)
         if not match:
             return
-            
-        dono_completo = match.group(1).strip()
-        # Remove underscores e espaços extras
-        dono_nome = dono_completo.replace("_", "").strip()
-        
+
+        dono_nome = match.group(1).replace("_", "").strip()
+
         guild_id = str(message.guild.id)
         imunes = carregar_json(ARQUIVO_IMUNES)
         if guild_id not in imunes:
             return
-            
+
         personagem_normalizado = normalizar_texto(personagem)
-        
-        for user_id, dados in imunes[guild_id].items():
+
+        for user_id, dados in list(imunes[guild_id].items()):
             if normalizar_texto(dados["personagem"]) == personagem_normalizado:
                 usuario_imune = message.guild.get_member(int(user_id))
                 if not usuario_imune:
                     continue
 
-                # Remove da lista de imunidades (SEM VERIFICAR SE É O DONO)
                 del imunes[guild_id][user_id]
                 salvar_json(ARQUIVO_IMUNES, imunes)
 
-                # Aplica cooldown de 3 dias
                 definir_cooldown(user_id, dias=3)
 
-                # Envia aviso no canal configurado
                 config = carregar_json(ARQUIVO_CONFIG)
-                canal_id = config.get(guild_id)
-                canal = message.guild.get_channel(canal_id) if canal_id else None
+                canal = message.guild.get_channel(config.get(guild_id))
 
                 if canal:
                     await canal.send(
-                        f" {usuario_imune.mention}, seu personagem imune "
+                        f"{usuario_imune.mention}, seu personagem imune "
                         f"**{dados['personagem']} ({dados['origem']})** já foi pego. "
-                        f"Você agora está em cooldown de **3 dias** para usar `/imune_add` novamente."
+                        f"Cooldown de **3 dias** aplicado."
                     )
-                
-                print(f"[REMOVIDO] {dados['personagem']} removido das imunidades. Cooldown aplicado a {usuario_imune}.")
+
                 break
-                
+
+    # ====================================
+    # === PROCESSA COMANDOS SLASH / PREFIX
+    # ====================================
     await bot.process_commands(message)
+
 
 # === LOOP DE VERIFICAÇÃO ===
 @tasks.loop(hours=1)
