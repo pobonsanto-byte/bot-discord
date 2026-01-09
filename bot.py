@@ -533,7 +533,7 @@ class AplicacaoView(discord.ui.View):
         
         players[uid].update({
             "status": "aprovado",
-            "rodadas": 3,
+            "rodadas": 2,
             "ultimo_reset": agora_brasil().strftime("%Y-%m-%d"),
             "sala_ativa": False
         })
@@ -548,7 +548,7 @@ class AplicacaoView(discord.ui.View):
                     description="Sua aplicação para Sala Privada foi aprovada!",
                     color=discord.Color.green()
                 )
-                embed.add_field(name="Rodadas diárias", value="3 rodadas por dia", inline=True)
+                embed.add_field(name="Rodadas diárias", value="2 rodadas por dia", inline=True)
                 embed.add_field(name="Status", value="Aprovado", inline=True)
                 embed.add_field(name="Próximos passos", value="Use `/sala_privada_abrir` para abrir sua sala", inline=False)
                 await usuario.send(embed=embed)
@@ -647,7 +647,7 @@ class AplicacaoView(discord.ui.View):
             
             info_text = (
                 f"**Status:** {player_data.get('status', 'desconhecido')}\n"
-                f"**Rodadas:** {player_data.get('rodadas', 0)}/3\n"
+                f"**Rodadas:** {player_data.get('rodadas', 0)}/2\n"
                 f"**Último reset:** {player_data.get('ultimo_reset', 'Nunca')}\n"
                 f"**Sala ativa:** {'Sim' if player_data.get('sala_ativa', False) else 'Não'}\n"
                 f"**Imunidade:** {imunidade_text}"
@@ -2287,7 +2287,7 @@ async def s2_reset():
         ultimo_reset = dados.get("ultimo_reset")
 
         if ultimo_reset != hoje:
-            dados["rodadas"] = 3
+            dados["rodadas"] = 2
             dados["ultimo_reset"] = hoje
             dados["sala_ativa"] = False
             alterou = True
@@ -2370,7 +2370,7 @@ async def sala_status(interaction: discord.Interaction):
     embed.add_field(name="Status", value=f"{status_emoji} {p['status'].title()}", inline=True)
     
     # Rodadas
-    embed.add_field(name="Rodadas hoje", value=f"{p['rodadas']}/3", inline=True)
+    embed.add_field(name="Rodadas hoje", value=f"{p['rodadas']}/2", inline=True)
     
     # Sala ativa
     sala_ativa = "Sim" if p["sala_ativa"] else "Não"
