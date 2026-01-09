@@ -2326,7 +2326,7 @@ async def sala_privada_aprovar(
             description="Sua aplicação para Sala Privada foi aprovada!",
             color=discord.Color.green()
         )
-        embed.add_field(name="Rodadas diárias", value="3 rodadas por dia", inline=True)
+        embed.add_field(name="Rodadas diárias", value="2 rodadas por dia", inline=True)
         embed.add_field(name="Status", value="Aprovado", inline=True)
         await usuario.send(embed=embed)
     except:
