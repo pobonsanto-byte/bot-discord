@@ -2031,7 +2031,272 @@ async def sala_privada_apply(interaction: discord.Interaction):
         "📨 Aplicação enviada para a Sala Privada! Aguarde a aprovação dos administradores.", 
         ephemeral=True
     )
+#----------- S2 comandos ------
+@bot.tree.command(
+    name="sala_remover_acesso",
+    description="Remove o acesso de um usuário às salas privadas (admin)."
+)
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.describe(
+    usuario="Usuário que terá o acesso removido",
+    remover_sala_ativa="Fechar sala ativa do usuário (se houver) (Padrão: True)"
+)
+async def sala_remover_acesso(
+    interaction: discord.Interaction,
+    usuario: discord.Member,
+    remover_sala_ativa: bool = True
+):
+    """Remove completamente o acesso de um usuário às salas privadas."""
+    
+    uid = str(usuario.id)
+    players = s2_load(ARQ_S2_PLAYERS)
+    salas = s2_load_salas()
+    
+    # Verifica se o usuário está no sistema
+    if uid not in players:
+        await interaction.response.send_message(
+            f"❌ {usuario.mention} não está no sistema de salas privadas.",
+            ephemeral=True
+        )
+        return
+    
+    # Se o usuário tem uma sala ativa e remover_sala_ativa é True
+    if remover_sala_ativa and players[uid].get("sala_ativa", False):
+        if uid in salas and salas[uid].get("ativa", False):
+            await fechar_sala_automaticamente(uid, interaction.guild)
+    
+    # Remove o usuário do sistema
+    del players[uid]
+    
+    # Remove a sala do usuário (se existir)
+    if uid in salas:
+        # Tenta remover o cargo e canal
+        sala_info = salas[uid]
+        
+        # Remove cargo
+        cargo = interaction.guild.get_role(sala_info.get("cargo_id"))
+        if cargo:
+            try:
+                await cargo.delete(reason=f"Acesso removido por {interaction.user}")
+            except:
+                pass
+        
+        # Remove canal
+        canal = interaction.guild.get_channel(sala_info.get("canal_id"))
+        if canal:
+            try:
+                await canal.delete(reason=f"Acesso removido por {interaction.user}")
+            except:
+                pass
+        
+        # Remove do arquivo de salas
+        del salas[uid]
+    
+    # Salva as alterações
+    s2_save(ARQ_S2_PLAYERS, players)
+    s2_save_salas(salas)
+    
+    # Envia DM para o usuário
+    try:
+        embed_dm = discord.Embed(
+            title="🔒 Acesso Removido",
+            description="Seu acesso às salas privadas foi removido pelos administradores.",
+            color=discord.Color.red()
+        )
+        embed_dm.add_field(
+            name="Motivo",
+            value="Remoção administrativa",
+            inline=False
+        )
+        await usuario.send(embed=embed_dm)
+    except:
+        pass
+    
+    # Resposta para o administrador
+    embed = discord.Embed(
+        title="✅ Acesso Removido",
+        description=f"O acesso de {usuario.mention} às salas privadas foi completamente removido.",
+        color=discord.Color.green()
+    )
+    embed.add_field(name="Usuário", value=f"{usuario.display_name} (ID: {usuario.id})", inline=True)
+    embed.add_field(name="Sala ativa fechada", value="Sim" if remover_sala_ativa else "Não", inline=True)
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+    print(f"✅ {interaction.user} removeu acesso de {usuario} às salas privadas")
 
+# === COMANDO PARA RECUSAR APLICAÇÃO MANUALMENTE ===
+@bot.tree.command(
+    name="sala_recusar_aplicacao",
+    description="Recusa manualmente a aplicação de um usuário para sala privada (admin)."
+)
+@app_commands.checks.has_permissions(administrator=True)
+@app_commands.describe(
+    usuario="Usuário que terá a aplicação recusada",
+    motivo="Motivo da recusa (opcional)"
+)
+async def sala_recusar_aplicacao(
+    interaction: discord.Interaction,
+    usuario: discord.Member,
+    motivo: str = None
+):
+    """Recusa manualmente a aplicação de um usuário."""
+    
+    uid = str(usuario.id)
+    players = s2_load(ARQ_S2_PLAYERS)
+    
+    # Verifica se o usuário tem uma aplicação pendente
+    if uid not in players:
+        await interaction.response.send_message(
+            f"❌ {usuario.mention} não possui uma aplicação pendente.",
+            ephemeral=True
+        )
+        return
+    
+    if players[uid]["status"] != "pendente":
+        await interaction.response.send_message(
+            f"❌ {usuario.mention} não tem uma aplicação pendente. Status atual: {players[uid]['status']}",
+            ephemeral=True
+        )
+        return
+    
+    # Remove a aplicação
+    del players[uid]
+    s2_save(ARQ_S2_PLAYERS, players)
+    
+    # Envia DM para o usuário
+    try:
+        embed_dm = discord.Embed(
+            title="❌ Aplicação Recusada",
+            description="Sua aplicação para Sala Privada foi recusada pelos administradores.",
+            color=discord.Color.red()
+        )
+        if motivo:
+            embed_dm.add_field(name="Motivo", value=motivo, inline=False)
+        embed_dm.add_field(
+            name="Informação",
+            value="Entre em contato com um administrador para mais informações.",
+            inline=False
+        )
+        await usuario.send(embed=embed_dm)
+    except:
+        pass
+    
+    # Resposta para o administrador
+    embed = discord.Embed(
+        title="✅ Aplicação Recusada",
+        description=f"A aplicação de {usuario.mention} foi recusada com sucesso.",
+        color=discord.Color.orange()
+    )
+    embed.add_field(name="Usuário", value=f"{usuario.display_name} (ID: {usuario.id})", inline=True)
+    if motivo:
+        embed.add_field(name="Motivo", value=motivo, inline=False)
+    embed.add_field(name="Data/Hora", value=agora_brasil().strftime("%d/%m/%Y %H:%M"), inline=False)
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+    print(f"✅ {interaction.user} recusou aplicação de {usuario}")
+
+# === COMANDO PARA VER APLICAÇÕES PENDENTES ===
+@bot.tree.command(
+    name="sala_pendentes",
+    description="Mostra todas as aplicações pendentes para salas privadas (admin)."
+)
+@app_commands.checks.has_permissions(administrator=True)
+async def sala_aplicacoes_pendentes(interaction: discord.Interaction):
+    """Mostra todas as aplicações pendentes."""
+    
+    players = s2_load(ARQ_S2_PLAYERS)
+    
+    # Filtra apenas aplicações pendentes
+    pendentes = {uid: data for uid, data in players.items() if data.get("status") == "pendente"}
+    
+    if not pendentes:
+        await interaction.response.send_message(
+            "📭 Nenhuma aplicação pendente no momento.",
+            ephemeral=True
+        )
+        return
+    
+    # Cria a view de paginação
+    class AplicacoesPendentesView(discord.ui.View):
+        def __init__(self, aplicacoes):
+            super().__init__(timeout=120)
+            self.aplicacoes = list(aplicacoes.items())
+            self.page = 0
+            self.per_page = 5
+            self.total_pages = (len(self.aplicacoes) - 1) // self.per_page + 1
+        
+        def gerar_embed(self):
+            inicio = self.page * self.per_page
+            fim = inicio + self.per_page
+            pagina = self.aplicacoes[inicio:fim]
+            
+            embed = discord.Embed(
+                title=f"📋 Aplicações Pendentes — Página {self.page + 1}/{self.total_pages}",
+                description=f"Total: {len(self.aplicacoes)} aplicação(ões) pendente(s)",
+                color=discord.Color.yellow()
+            )
+            
+            for uid, data in pagina:
+                usuario = interaction.guild.get_member(int(uid))
+                nome_usuario = usuario.display_name if usuario else "Usuário não encontrado"
+                mencao_usuario = usuario.mention if usuario else f"`{uid}`"
+                
+                # Verifica se tem imunidade
+                tem_imunidade = usuario_tem_imunidade(int(uid), interaction.guild.id)
+                
+                embed.add_field(
+                    name=f"👤 {nome_usuario}",
+                    value=(
+                        f"**ID:** {uid}\n"
+                        f"**Usuário:** {mencao_usuario}\n"
+                        f"**Status:** ⏳ Pendente\n"
+                        f"**Imunidade:** {'⚠️ **TEM IMUNIDADE**' if tem_imunidade else '✅ Não tem'}\n"
+                        f"**Rodadas:** {data.get('rodadas', 0)}/0"
+                    ),
+                    inline=False
+                )
+            
+            embed.set_footer(text=f"Use os botões abaixo para navegar | Total: {len(self.aplicacoes)}")
+            return embed
+        
+        @discord.ui.button(label="⬅️", style=discord.ButtonStyle.gray)
+        async def anterior(self, interaction_btn: discord.Interaction, button: discord.ui.Button):
+            if self.page > 0:
+                self.page -= 1
+                await interaction_btn.response.edit_message(
+                    embed=self.gerar_embed(),
+                    view=self
+                )
+        
+        @discord.ui.button(label="➡️", style=discord.ButtonStyle.gray)
+        async def proximo(self, interaction_btn: discord.Interaction, button: discord.ui.Button):
+            if self.page < self.total_pages - 1:
+                self.page += 1
+                await interaction_btn.response.edit_message(
+                    embed=self.gerar_embed(),
+                    view=self
+                )
+        
+        @discord.ui.button(label="🔄 Atualizar", style=discord.ButtonStyle.green)
+        async def atualizar(self, interaction_btn: discord.Interaction, button: discord.ui.Button):
+            # Recarrega os dados
+            players = s2_load(ARQ_S2_PLAYERS)
+            self.aplicacoes = [(uid, data) for uid, data in players.items() if data.get("status") == "pendente"]
+            self.total_pages = (len(self.aplicacoes) - 1) // self.per_page + 1
+            if self.page >= self.total_pages:
+                self.page = max(0, self.total_pages - 1)
+            
+            await interaction_btn.response.edit_message(
+                embed=self.gerar_embed(),
+                view=self
+            )
+    
+    view = AplicacoesPendentesView(pendentes)
+    await interaction.response.send_message(
+        embed=view.gerar_embed(),
+        view=view,
+        ephemeral=True
+    )
 # ---------- APROVAR ----------
 @bot.tree.command(name="sala_privada_aprovar", description="Aprova aplicação de um usuário.")
 @app_commands.checks.has_permissions(administrator=True)
