@@ -2900,7 +2900,11 @@ async def on_message(message: discord.Message):
     # ====================================
     # === DETECTOR AUTOMÁTICO DE $IM
     # ====================================
-    if message.content.lower().startswith("$im "):
+    CANAL_IM_DETECTOR = 1430091793529180201
+    
+    if message.channel.id != CANAL_IM_DETECTOR:
+        pass
+    elif message.content.lower().startswith("$im "):
         await asyncio.sleep(3)
         
         personagem, footer_text, descricao = await obter_ultima_embed_mudae(message.channel)
